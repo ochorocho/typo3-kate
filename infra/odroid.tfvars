@@ -21,3 +21,10 @@ ip_offset    = 210 # master .210, workers .211 and .212
 # The J4105 has 4 cores (vCPUs are shared); 16 GB RAM for the VMs out of 32.
 master = { vcpu = 2, memory_mb = 4096, disk_gb = 30 }
 worker = { vcpu = 2, memory_mb = 6144, disk_gb = 40 } # room for MariaDB, Valkey and TYPO3
+
+# Let's Encrypt via DNS-01 on Hetzner DNS. While acme_domain is set, every
+# tofu apply needs the token: keep it in infra/.env (git-ignored)
+#   export TF_VAR_hetzner_dns_token=...
+# and run `source .env` before tofu.
+acme_domain      = "kate.ochorocho.dev"
+acme_environment = "production" # "staging" for test certificates
