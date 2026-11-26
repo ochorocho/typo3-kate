@@ -23,6 +23,16 @@ output "dashboard_token_command" {
   value       = "${abspath(path.module)}/scripts/dashboard-token.sh ${local.master.ip}"
 }
 
+output "ca_certificate" {
+  description = "CA of the Gateway's HTTPS certificate. Trust it once to avoid browser warnings."
+  value       = abspath(local_file.ca_certificate.filename)
+}
+
+output "site_url" {
+  description = "Applications behind the Gateway (HTTPS; plain HTTP redirects)."
+  value       = "https://${local.master.ip}/"
+}
+
 output "registry" {
   description = "Cluster image registry (plain HTTP). Push here, deploy by digest."
   value       = local.registry

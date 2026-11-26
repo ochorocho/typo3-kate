@@ -9,11 +9,6 @@ typo3:
   existingSecret: typo3-env           # created once by k8s/deploy.sh, never by Helm
   logLevel: notice
   mailFrom: noreply@typo3-kate.local
-  extraEnv:
-    # kubernetes.php treats requests from the proxy as HTTPS by default (TLS
-    # ends at the gateway). Our Gateway is HTTP only, so match no proxy here,
-    # or TYPO3 redirects to https:// (404). Remove once the Gateway has TLS.
-    TYPO3_REVERSE_PROXY_SSL: "none"
 
 database:
   host: typo3-mariadb                 # single instance: the operator's plain Service
@@ -49,7 +44,7 @@ httpRoute:
   parentRefs:
     - name: public-gateway             # infra/templates/gateway.yaml.tftpl
       namespace: gateway-system
-      sectionName: http
+      sectionName: https              # TLS ends here; plain HTTP redirects
   hostnames: []                        # any host
 
 persistence:

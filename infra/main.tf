@@ -52,7 +52,10 @@ locals {
     "storage.yaml" = templatefile("${path.module}/templates/storage.yaml.tftpl", {
       master_ip = local.master.ip
     })
-    "gateway.yaml"          = file("${path.module}/templates/gateway.yaml.tftpl")
+    "gateway.yaml" = templatefile("${path.module}/templates/gateway.yaml.tftpl", {
+      tls_crt = base64encode("${tls_locally_signed_cert.gateway.cert_pem}${tls_self_signed_cert.ca.cert_pem}")
+      tls_key = base64encode(tls_private_key.gateway.private_key_pem)
+    })
     "mariadb-operator.yaml" = file("${path.module}/templates/mariadb-operator.yaml.tftpl")
   }
 }
@@ -60,6 +63,58 @@ locals {
 resource "random_password" "k3s_token" {
   length  = 48
   special = false
+}
+
+# --- HTTPS ---------------------------------------------------------------
+# A private CA for the cluster and a certificate for every node IP and name,
+# used by the Gateway. Trust infra/cluster-ca.crt once to avoid browser warnings.
+
+resource "tls_private_key" "ca" {
+  algorithm   = "ECDSA"
+  ecdsa_curve = "P256"
+}
+
+resource "tls_self_signed_cert" "ca" {
+  private_key_pem       = tls_private_key.ca.private_key_pem
+  is_ca_certificate     = true
+  validity_period_hours = 24 * 365 * 10
+  allowed_uses          = ["cert_signing", "crl_signing"]
+
+  subject {
+    common_name  = "${var.cluster_name} cluster CA"
+    organization = "typo3-kate"
+  }
+}
+
+resource "tls_private_key" "gateway" {
+  algorithm   = "ECDSA"
+  ecdsa_curve = "P256"
+}
+
+resource "tls_cert_request" "gateway" {
+  private_key_pem = tls_private_key.gateway.private_key_pem
+  ip_addresses    = [for n in local.nodes : n.ip]
+  dns_names       = [for n in local.nodes : n.name]
+
+  subject {
+    common_name  = local.master.ip
+    organization = "typo3-kate"
+  }
+}
+
+resource "tls_locally_signed_cert" "gateway" {
+  cert_request_pem   = tls_cert_request.gateway.cert_request_pem
+  ca_private_key_pem = tls_private_key.ca.private_key_pem
+  ca_cert_pem        = tls_self_signed_cert.ca.cert_pem
+  # Apple platforms reject server certificates valid for more than 398 days.
+  validity_period_hours = 24 * 397
+  allowed_uses          = ["digital_signature", "key_encipherment", "server_auth"]
+}
+
+resource "local_file" "ca_certificate" {
+  filename        = "${path.module}/cluster-ca.crt"
+  content         = tls_self_signed_cert.ca.cert_pem
+  file_permission = "0644"
 }
 
 # --- Storage -------------------------------------------------------------

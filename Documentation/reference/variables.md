@@ -58,5 +58,7 @@ Not every combination is allowed: `socket_vmnet` requires `platform = "macos"`, 
 | `ssh` | `{ k8s-master = "ssh ubuntu@192.168.105.200", … }` |
 | `dashboard_url` | `http://192.168.105.200:30080` |
 | `kubeconfig` | `export KUBECONFIG=/…/infra/kubeconfig` |
+| `site_url` | `https://192.168.105.200/` |
+| `ca_certificate` | `/…/infra/cluster-ca.crt` |
 | `registry` | `192.168.105.200:30500` |
 | `dashboard_token_command` | `/…/infra/scripts/dashboard-token.sh 192.168.105.200` |

@@ -18,8 +18,8 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `k8s/platform/mariadb.yaml` | from `examples/mariadb`: 1 replica instead of 3, 1 GiB, local-path storage, no metrics |
 | `k8s/platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
 | `k8s/platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
-| `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, HTTP only |
-| `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes; HTTPS detection off while the Gateway is HTTP only |
+| `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, certificate from the cluster CA instead of cert-manager |
+| `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes |
 
 | New | Why |
 |---|---|
@@ -33,7 +33,7 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 ```
  Mac ──push──▶ registry (master :30500) ◀──pull── nodes (registries.yaml mirror)
 
- browser ──:80──▶ Traefik ──Gateway API──▶ public-gateway ──HTTPRoute──▶ typo3-frontend ×2
+ browser ──:443──▶ Traefik ──Gateway API──▶ public-gateway ──HTTPRoute──▶ typo3-frontend ×2
                                                                 └─/typo3──▶ typo3-backend
  typo3 pods ──▶ typo3-mariadb (mariadb-operator)
             ──▶ typo3-valkey (sessions, locks) / typo3-valkey-cache (caches)
@@ -44,7 +44,8 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 |---|---|---|
 | Registry | k3s manifest, `registry:3` on the master | plain HTTP. Every node has a containerd mirror for it |
 | RWX storage | `nfs-kernel-server` on the master + `csi-driver-nfs` | StorageClass `nfs`, `reclaimPolicy: Retain` |
-| Gateway API | k3s ships the CRDs; Traefik's provider is switched on | GatewayClass `traefik`, Gateway `gateway-system/public-gateway`; namespaces need the label `gateway-access: public` |
+| Gateway API | k3s ships the CRDs; Traefik's provider is switched on | GatewayClass `traefik`, Gateway `gateway-system/public-gateway`: `https` for routes from namespaces labelled `gateway-access: public`, `http` only redirects |
+| TLS | OpenTofu `tls` provider: cluster CA + certificate for all node IPs | Secret `gateway-tls`, also Traefik's default certificate (`TLSStore default`), because browsers send no SNI for IP addresses |
 | mariadb-operator | HelmCharts `mariadb-operator-crds` + `mariadb-operator` | namespace `mariadb-system` |
 
 ## Why `settings.php` is prepared at build time
@@ -87,7 +88,7 @@ Headlamp, the operator and the platform components come on top, so there is room
 
 ## Not done yet
 
-- **TLS:** the Gateway listens on HTTP only, so `k8s/values/cluster.yaml` sets `TYPO3_REVERSE_PROXY_SSL: "none"` (otherwise TYPO3 redirects to `https://`). Next step: cert-manager plus a `https` listener, as in Benni's example, then remove that setting.
+- **Public certificates:** the Gateway uses the cluster's own CA. For a public hostname, cert-manager with Let's Encrypt (as in Benni's example) would replace it.
 - **Backups:** `examples/mariadb/02-backups.yaml` (mariadb-operator Backup CR) isn't applied.
 - **S3 storage 2:** stays offline until `TYPO3_S3_*` is set, for example with Garage in the cluster.
 - **High availability:** MariaDB and Valkey run as single instances.

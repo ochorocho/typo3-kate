@@ -206,6 +206,6 @@ fi
 echo
 k get pods -o wide
 echo
-echo "TYPO3:    http://${MASTER_IP}/   (every node IP works)"
-echo "Backend:  http://${MASTER_IP}/typo3   user: $(secret_value typo3-admin username)"
+echo "TYPO3:    https://${MASTER_IP}/   (every node IP works; trust infra/cluster-ca.crt to avoid warnings)"
+echo "Backend:  https://${MASTER_IP}/typo3   user: $(secret_value typo3-admin username)"
 echo "Password: kubectl -n ${NAMESPACE} get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d"

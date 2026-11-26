@@ -41,9 +41,16 @@ cd ..
 
 | What | URL |
 |---|---|
-| Website | http://192.168.105.200/ |
-| TYPO3 backend | http://192.168.105.200/typo3 (user `admin`) |
+| Website | https://192.168.105.200/ |
+| TYPO3 backend | https://192.168.105.200/typo3 (user `admin`) |
 | Kubernetes dashboard | http://192.168.105.200:30080 |
+
+The certificate comes from a CA that `tofu apply` creates for the cluster. Until you trust it, the browser warns once:
+
+```sh
+# macOS: trust the cluster CA once (asks for your password)
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain infra/cluster-ca.crt
+```
 
 ```sh
 export KUBECONFIG=$PWD/infra/kubeconfig
@@ -65,7 +72,7 @@ cd infra && tofu init && tofu apply -var-file=odroid.tfvars && cd ..
 ./k8s/deploy.sh
 ```
 
-The site is then on http://10.17.3.10/. To reach it from other machines, put the VMs on your LAN: see [Odroid H2 host](https://ochorocho.github.io/typo3-kate/guide/odroid).
+The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach it from other machines, put the VMs on your LAN: see [Odroid H2 host](https://ochorocho.github.io/typo3-kate/guide/odroid).
 
 ## Everyday commands
 

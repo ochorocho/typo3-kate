@@ -3,3 +3,4 @@
 *.tfstate.*
 kubeconfig
 apply.log
+cluster-ca.crt

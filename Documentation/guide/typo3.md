@@ -4,9 +4,22 @@ The cluster runs a TYPO3 v15 site, built and deployed the way [Benni Mack's typo
 
 | What | Where |
 |---|---|
-| Website | `http://192.168.105.200/` (every node IP works) |
-| Backend | `http://192.168.105.200/typo3`, user `admin` |
+| Website | `https://192.168.105.200/` (every node IP works; `http://` redirects) |
+| Backend | `https://192.168.105.200/typo3`, user `admin` |
 | Health | `/_health/live`, `/_health/ready` |
+
+## HTTPS
+
+TLS ends at the Gateway, as in Benni's production setup. `tofu apply` creates a private CA for the cluster and a certificate for every node IP and hostname, valid for 397 days. Plain HTTP answers with a redirect to HTTPS.
+
+Trust the CA once, and the browser stops warning:
+
+```sh
+# macOS: trust the cluster CA once (asks for your password)
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain infra/cluster-ca.crt
+```
+
+Firefox has its own certificate store: Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import.
 
 The admin password is in a Secret:
 

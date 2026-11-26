@@ -29,8 +29,9 @@ Generated, and ignored by git:
 | File | Contents |
 |---|---|
 | `.terraform/` | downloaded providers |
-| `terraform.tfstate*` | OpenTofu state, **including the k3s token** |
+| `terraform.tfstate*` | OpenTofu state, **including the k3s token and the CA's private key** |
 | `kubeconfig` | admin credentials for the cluster |
+| `cluster-ca.crt` | the cluster CA (public). Trust it to avoid browser warnings |
 
 `.terraform.lock.hcl` pins the exact provider builds. Commit it.
 

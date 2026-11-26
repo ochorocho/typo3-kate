@@ -114,20 +114,33 @@ helm -n typo3 uninstall typo3
 
 ```sh
 kubectl -n typo3 get pods
-curl http://<node-ip>/_health/ready          # {"status":"ok","checks":{"database":true,"valkey":true}}
+curl --cacert infra/cluster-ca.crt https://<node-ip>/_health/ready          # {"status":"ok","checks":{"database":true,"valkey":true}}
 kubectl -n typo3 logs deploy/typo3-frontend --tail=50
 ```
 
 `/_health/ready` shows which dependency is missing. A pod that fails it gets no traffic.
 
-## TYPO3: backend login ends on `https://…` with "404 page not found"
+## HTTPS: browser warns about the certificate
 
-The Gateway serves HTTP only. Benni's `kubernetes.php` treats every request from the trusted proxy as HTTPS (`reverseProxySSL` falls back to `TYPO3_REVERSE_PROXY_IP`), because in production TLS ends at the gateway. TYPO3 then builds `https://` redirects, and Traefik has no HTTPS route, so it answers with its own 404.
+The Gateway's certificate comes from the cluster's own CA. Trust `infra/cluster-ca.crt` once (see [TYPO3 on the cluster](./typo3#https)). Restart the browser afterwards.
 
-`k8s/values/cluster.yaml` switches this off with `TYPO3_REVERSE_PROXY_SSL: "none"`. Check that the pods have it:
+Check what the Gateway serves:
 
 ```sh
-kubectl -n typo3 exec deploy/typo3-backend -- printenv TYPO3_REVERSE_PROXY_SSL   # none
+curl --cacert infra/cluster-ca.crt -sS -o /dev/null -w '%{http_code}\n' https://192.168.105.200/
+openssl s_client -connect 192.168.105.200:443 </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer
 ```
 
-Remove the setting once the Gateway has an HTTPS listener.
+The issuer must be `k8s cluster CA`. `TRAEFIK DEFAULT CERT` means the `TLSStore` named `default` in `kube-system` is missing: browsers send no server name (SNI) for IP addresses, so Traefik needs our certificate as its default.
+
+## HTTPS: "404 page not found"
+
+Traefik answers this when no route matches. The TYPO3 route attaches only to the Gateway's `https` listener, and `http://` only redirects:
+
+```sh
+kubectl -n gateway-system get gateway public-gateway \
+  -o jsonpath='{range .status.listeners[*]}{.name}: {.attachedRoutes} routes{"\n"}{end}'
+kubectl -n typo3 get httproute typo3 -o jsonpath='{.status.parents[*].conditions[*].reason}'
+```
+
+`https: 0 routes` means the namespace lacks the label `gateway-access: public`, which `k8s/deploy.sh` sets.
