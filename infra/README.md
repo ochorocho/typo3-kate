@@ -12,7 +12,7 @@ OpenTofu creates three Ubuntu 24.04 VMs (1 master, 2 workers). When `tofu apply`
 | Apple Silicon   | QEMU + HVF via libvirt | socket_vmnet (`192.168.105.200-202`) | `macos.tfvars`  |
 | Odroid H2 (x86) | KVM via libvirt        | NAT `10.17.3.10-12` or LAN bridge   | `odroid.tfvars` |
 
-Full documentation: [`../Documentation`](../Documentation) (VitePress: `cd Documentation && npm install && npm run dev`).
+Full documentation: [ochorocho.github.io/typo3-kate](https://ochorocho.github.io/typo3-kate/), source in [`../Documentation`](../Documentation) (VitePress: `cd Documentation && npm install && npm run dev`).
 
 macOS has no KVM. libvirt runs the VMs with QEMU and Apple's Hypervisor.framework (`hvf`), which is just as fast.
 

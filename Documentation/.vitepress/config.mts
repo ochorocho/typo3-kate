@@ -3,6 +3,8 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'K8s on libvirt',
   description: '3-node Kubernetes cluster on KVM (Odroid H2) and macOS with TYPO3, built with OpenTofu',
+  // GitHub Pages serves the site under /<repo>/ (set by .github/workflows/docs.yml)
+  base: process.env.DOCS_BASE ?? '/',
   cleanUrls: true,
   lastUpdated: false,
 

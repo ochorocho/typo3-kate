@@ -48,6 +48,8 @@ platform/                      MariaDB, Valkey, RWX volumes for namespace typo3
 build/bootstrap.sql            first pages for an empty database
 scripts/typo3-deploy.sh        build, push, deploy
 LICENSE-typo3-k8s-starter      MIT license of the upstream project
+.github/workflows/ci.yml       lint (PHP, shell, Helm, kubeconform), OpenTofu, image + smoke test
+.github/workflows/docs.yml     builds this documentation, publishes it to GitHub Pages
 ```
 
 See [TYPO3 architecture](./typo3-architecture).
@@ -68,3 +70,6 @@ npm install
 npm run dev       # http://localhost:5173
 npm run build     # static site in .vitepress/dist
 ```
+
+Every push to `main` that touches `Documentation/` publishes the site to
+[ochorocho.github.io/typo3-kate](https://ochorocho.github.io/typo3-kate/).
