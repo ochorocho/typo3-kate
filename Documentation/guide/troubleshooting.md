@@ -144,3 +144,26 @@ kubectl -n typo3 get httproute typo3 -o jsonpath='{.status.parents[*].conditions
 ```
 
 `https: 0 routes` means the namespace lacks the label `gateway-access: public`, which `k8s/deploy.sh` sets.
+
+## Let's Encrypt: certificate not issued
+
+```sh
+kubectl -n gateway-system describe certificate site | tail -15
+kubectl get orders,challenges -A
+kubectl -n cert-manager logs deploy/cert-manager-webhook-hetzner --tail=30
+```
+
+| Symptom | Cause |
+|---|---|
+| challenge `pending` with an authentication error | wrong token, or one from the old DNS Console. Create a read+write token in the Hetzner Console |
+| `zone not found` | the zone isn't managed in the Hetzner Console, or not in the token's project |
+| `too many failed authorizations` | Let's Encrypt rate limit: wait an hour, test with `acme_environment = "staging"` |
+| browser warns although the certificate is `Ready` | still the staging certificate: switch to `production` |
+
+## `tofu apply`: "acme_domain is set, so TF_VAR_hetzner_dns_token is needed"
+
+On purpose: without the token the run would empty the DNS Secret, and renewals would fail. Fetch it from the cluster and run again:
+
+```sh
+export TF_VAR_hetzner_dns_token="$(ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
+```

@@ -48,7 +48,12 @@ Not every combination is allowed: `socket_vmnet` requires `platform = "macos"`, 
 | `dashboard_node_port` | `30080` | NodePort of Headlamp, on every node |
 | `registry_node_port` | `30500` | NodePort of the cluster image registry (plain HTTP, on the master) |
 | `registry_size_gb` | `10` | Disk space for the registry |
-| `wait_for_cluster` | `true` | Wait for all nodes, the dashboard and the platform (registry, NFS driver, mariadb-operator, Gateway), then write `infra/kubeconfig`. Needs SSH from the machine running `tofu` to the master |
+| `cert_manager_version` | `"v1.21.3"` | cert-manager Helm chart version |
+| `acme_domain` | `null` | public hostname for a Let's Encrypt certificate, e.g. `kate.ochorocho.dev`. Needs `hetzner_dns_token` on every run |
+| `acme_environment` | `"staging"` | `staging` (untrusted test certificates) or `production` |
+| `acme_email` | `null` | optional contact address for the Let's Encrypt account |
+| `hetzner_dns_token` | `null` (sensitive) | Hetzner Console API token, read+write. Only as `TF_VAR_hetzner_dns_token` |
+| `wait_for_cluster` | `true` | After copying the manifests, wait for the dashboard and the platform (registry, NFS driver, mariadb-operator, cert-manager, certificate, Gateway) |
 
 ## Outputs
 
@@ -58,7 +63,7 @@ Not every combination is allowed: `socket_vmnet` requires `platform = "macos"`, 
 | `ssh` | `{ k8s-master = "ssh ubuntu@192.168.105.200", … }` |
 | `dashboard_url` | `http://192.168.105.200:30080` |
 | `kubeconfig` | `export KUBECONFIG=/…/infra/kubeconfig` |
-| `site_url` | `https://192.168.105.200/` |
+| `site_url` | `https://kate.ochorocho.dev/`, or the master IP without `acme_domain` |
 | `ca_certificate` | `/…/infra/cluster-ca.crt` |
 | `registry` | `192.168.105.200:30500` |
 | `dashboard_token_command` | `/…/infra/scripts/dashboard-token.sh 192.168.105.200` |

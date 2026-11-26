@@ -44,6 +44,7 @@ cd ..
 | Website | https://192.168.105.200/ |
 | TYPO3 backend | https://192.168.105.200/typo3 (user `admin`) |
 | Kubernetes dashboard | http://192.168.105.200:30080 |
+| Public name (optional) | https://kate.ochorocho.dev/ with Let's Encrypt, see [Public domain & Let's Encrypt](https://ochorocho.github.io/typo3-kate/guide/public-access) |
 
 The certificate comes from a CA that `tofu apply` creates for the cluster. Until you trust it, the browser warns once:
 

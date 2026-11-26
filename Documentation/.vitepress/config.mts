@@ -23,6 +23,7 @@ export default defineConfig({
           { text: 'Odroid H2 host', link: '/guide/odroid' },
           { text: 'Dashboard & kubectl', link: '/guide/dashboard' },
           { text: 'TYPO3 on the cluster', link: '/guide/typo3' },
+          { text: "Public domain & Let's Encrypt", link: '/guide/public-access' },
           { text: 'Day-to-day operations', link: '/guide/operations' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' },
         ],

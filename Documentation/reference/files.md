@@ -15,11 +15,14 @@ infra/
 │   ├── storage.yaml.tftpl         csi-driver-nfs + StorageClass nfs
 │   ├── gateway.yaml.tftpl         Traefik Gateway API provider, GatewayClass, public-gateway
 │   ├── mariadb-operator.yaml.tftpl  mariadb-operator (CRDs + operator)
+│   ├── cert-manager.yaml.tftpl    cert-manager + Hetzner DNS webhook
+│   ├── acme.yaml.tftpl            Let's Encrypt issuers, Certificate, token Secret
 │   ├── network-config.yaml.tftpl  netplan: static IP on lan0, matched by MAC
 │   ├── dashboard.yaml.tftpl       Headlamp HelmChart + admin ServiceAccount/token
 │   └── domain.xsl.tftpl           libvirt XML patches (aarch64, socket_vmnet)
 ├── scripts/
-│   ├── wait-for-cluster.sh        waits for nodes + dashboard, writes kubeconfig
+│   ├── wait-for-cluster.sh        waits for the nodes, writes kubeconfig
+│   ├── push-manifests.sh          copies the platform manifests to the master, waits for them
 │   └── dashboard-token.sh         prints the dashboard login token
 └── README.md                      short version of this documentation
 ```
@@ -29,9 +32,10 @@ Generated, and ignored by git:
 | File | Contents |
 |---|---|
 | `.terraform/` | downloaded providers |
-| `terraform.tfstate*` | OpenTofu state, **including the k3s token and the CA's private key** |
+| `terraform.tfstate*` | OpenTofu state, **including the k3s token, the CA's private key and the DNS token** |
 | `kubeconfig` | admin credentials for the cluster |
 | `cluster-ca.crt` | the cluster CA (public). Trust it to avoid browser warnings |
+| `.manifests/` | rendered platform manifests, **including the Gateway key and the DNS token** |
 
 `.terraform.lock.hcl` pins the exact provider builds. Commit it.
 

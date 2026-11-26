@@ -41,9 +41,10 @@ Edit the `.tfvars` file and run `tofu apply` again.
 |---|---|
 | `worker_count` up | new workers are created and join automatically. Existing nodes are rebuilt, because every node's `/etc/hosts` lists all nodes |
 | `master` / `worker` vCPU or RAM | VMs are recreated in place, with the same disks |
-| anything that ends up in cloud-init (IPs, k3s settings, SSH key, dashboard) | the affected nodes get new disks: **data on them is lost** |
+| platform manifests (dashboard, registry, storage, Gateway, certificates, operators) | copied to the master over ssh and applied by k3s. **No rebuild**, takes seconds |
+| anything that ends up in cloud-init (IPs, k3s settings, SSH key, NFS export, registry mirror) | the affected nodes get new disks: **data on them is lost** |
 
-Check `tofu plan` first: look for `must be replaced`.
+Check `tofu plan` first: look for `must be replaced`. A second `tofu apply` right after the first must report `No changes`.
 
 ## Start and stop VMs
 

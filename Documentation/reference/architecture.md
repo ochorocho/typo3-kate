@@ -18,7 +18,7 @@
                                    └─ install k3s (server | agent)
                                                 │
                                                 ▼
-                                   wait-for-cluster.sh
+                                   wait-for-cluster.sh → push-manifests.sh
                                    └─ writes infra/kubeconfig
 ```
 
@@ -33,7 +33,10 @@
 | `libvirt_network.cluster` | 0–1 | Only with `network_mode = "nat"` |
 | `libvirt_cloudinit_disk.init` | 3 | Per-node cloud-init ISO |
 | `libvirt_domain.node` | 3 | The VMs |
-| `terraform_data.cluster_ready` | 0–1 | Runs `wait-for-cluster.sh` |
+| `terraform_data.cluster_ready` | 1 | runs `wait-for-cluster.sh`: nodes ready, writes `infra/kubeconfig` |
+| `local_sensitive_file.manifest` | 6–7 | rendered platform manifests in `infra/.manifests/` |
+| `terraform_data.platform` | 1 | runs `push-manifests.sh`: copies them to the master and waits for the platform |
+| `tls_*`, `local_file.ca_certificate` | 6 | cluster CA and Gateway certificate |
 
 The provider is `dmacvicar/libvirt` **0.8.3**. Version 0.9 and later are a complete rewrite with a different schema. Upgrading means rewriting `main.tf`.
 
@@ -64,9 +67,25 @@ cloud-init writes `/etc/rancher/k3s/config.yaml` before running the official ins
 - `server: https://<master-ip>:6443` and the shared token
 - the agent retries until the master is up, so no explicit wait is needed
 
+## Platform manifests
+
+Cluster add-ons are plain Kubernetes manifests in `infra/templates/`. OpenTofu renders them into `infra/.manifests/` (git-ignored: they contain keys and the DNS token), and `scripts/push-manifests.sh` copies them over ssh to `/var/lib/rancher/k3s/server/manifests/` on the master as `tofu-*.yaml`. k3s applies every file in that folder and re-applies it when it changes; when a `tofu-*.yaml` disappears, k3s removes its resources.
+
+They are deliberately **not** part of cloud-init: a change to cloud-init rebuilds the VMs, a change to a manifest only re-runs `terraform_data.platform`.
+
+| Manifest | Contents |
+|---|---|
+| `dashboard.yaml` | Headlamp (see below) |
+| `registry.yaml` | image registry on the master |
+| `storage.yaml` | csi-driver-nfs, StorageClass `nfs` |
+| `gateway.yaml` | Traefik Gateway API, cluster CA certificate, Gateway, http→https redirect |
+| `mariadb-operator.yaml` | mariadb-operator |
+| `cert-manager.yaml` | cert-manager, Hetzner DNS webhook |
+| `acme.yaml` | only with `acme_domain`: token Secret, Let's Encrypt issuers, Certificate |
+
 ## Dashboard
 
-On the master, cloud-init puts `dashboard.yaml` into `/var/lib/rancher/k3s/server/manifests/`. k3s applies everything in that folder on start:
+`dashboard.yaml` contains:
 
 - a `HelmChart` object: k3s's built-in Helm controller installs the Headlamp chart from `kubernetes-sigs.github.io/headlamp`, with `service.type: NodePort`. No `helm` binary is needed.
 - ServiceAccount `dashboard-admin`, a `cluster-admin` ClusterRoleBinding and a long-lived token Secret for logging in

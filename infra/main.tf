@@ -39,8 +39,9 @@ locals {
 
   registry = "${local.master.ip}:${var.registry_node_port}"
 
-  # Let's Encrypt only with a domain and a token (the token itself stays sensitive).
-  acme_enabled = var.acme_domain != null && nonsensitive(var.hetzner_dns_token != null)
+  # Let's Encrypt is on as soon as a domain is set; the token must then be
+  # passed on every run (precondition on terraform_data.platform).
+  acme_enabled = var.acme_domain != null
   acme_issuers = {
     "letsencrypt-staging" = "https://acme-staging-v02.api.letsencrypt.org/directory"
     "letsencrypt"         = "https://acme-v02.api.letsencrypt.org/directory"
@@ -72,7 +73,7 @@ locals {
     })
     }, local.acme_enabled ? {
     "acme.yaml" = templatefile("${path.module}/templates/acme.yaml.tftpl", {
-      hetzner_token = var.hetzner_dns_token
+      hetzner_token = var.hetzner_dns_token == null ? "" : var.hetzner_dns_token
       issuers       = local.acme_issuers
       email         = var.acme_email == null ? "" : var.acme_email
       domain        = var.acme_domain
@@ -348,6 +349,18 @@ resource "terraform_data" "platform" {
       WAIT         = var.wait_for_cluster ? "1" : "0"
       REGISTRY     = local.registry
       ACME_ENABLED = local.acme_enabled ? "1" : "0"
+    }
+  }
+
+  lifecycle {
+    # Without the token the Secret would be emptied and renewals would fail.
+    precondition {
+      condition     = !local.acme_enabled || nonsensitive(var.hetzner_dns_token != null)
+      error_message = <<-EOT
+        acme_domain is set, so TF_VAR_hetzner_dns_token is needed on every run.
+        Read it from the cluster:
+          export TF_VAR_hetzner_dns_token="$(ssh ubuntu@${local.master.ip} "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
+      EOT
     }
   }
 }
