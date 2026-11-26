@@ -25,7 +25,8 @@ for file in "${MANIFEST_DIR}"/*.yaml; do
   ssh_master "sudo install -D -m 600 /dev/stdin ${REMOTE}/${name}" < "${file}"
   echo "Copied ${name}"
 done
-for name in $(ssh_master "cd ${REMOTE} && ls tofu-*.yaml 2>/dev/null || true"); do
+# The folder is root-only: list it with sudo.
+for name in $(ssh_master "sudo find ${REMOTE} -maxdepth 1 -name 'tofu-*.yaml' -printf '%f\n'"); do
   if [[ ! " ${wanted[*]} " == *" ${name} "* ]]; then
     ssh_master "sudo rm -f ${REMOTE}/${name}"
     echo "Removed ${name}"
