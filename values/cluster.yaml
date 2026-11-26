@@ -1,0 +1,64 @@
+# Our 3-node libvirt/k3s cluster (infra/). Based on values/production.yaml of
+# bmack/typo3-k8s-starter; scripts/typo3-deploy.sh adds image.repository and image.digest:
+#   helm upgrade --install typo3 charts/typo3 -n typo3 -f values/cluster.yaml \
+#     --set image.repository=<master-ip>:30500/typo3 --set image.digest=sha256:...
+
+typo3:
+  trustedHostsPattern: ".*"           # the site answers on every node IP
+  reverseProxyIP: "10.42.0.0/16"      # Traefik runs as a pod in k3s' pod network
+  existingSecret: typo3-env           # created once by scripts/typo3-deploy.sh, never by Helm
+  logLevel: notice
+  mailFrom: noreply@typo3-kate.local
+
+database:
+  host: typo3-mariadb                 # single instance: the operator's plain Service
+  name: typo3
+  user: typo3
+
+valkey:
+  host: typo3-valkey                  # sessions, locks (persistent, noeviction)
+  cacheHost: typo3-valkey-cache       # caches (no persistence, volatile-ttl)
+
+frontend:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4
+
+backend:
+  replicaCount: 1
+
+# The chart spreads pods per node (kubernetes.io/hostname) in addition to the
+# zone key; our nodes have no zone label, so the per-node rule does the work.
+topologySpread:
+  enabled: true
+
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: public-gateway             # infra/templates/gateway.yaml.tftpl
+      namespace: gateway-system
+      sectionName: http
+  hostnames: []                        # any host
+
+persistence:
+  fileadmin:
+    enabled: true
+    existingClaim: typo3-fileadmin     # platform/storage.yaml (NFS, RWX)
+  typo3tempAssets:
+    enabled: true
+    existingClaim: typo3-typo3temp-assets
+
+scheduler:
+  schedule: "*/15 * * * *"
+
+networkPolicy:
+  enabled: true
+  ingressFromNamespaceLabels:
+    kubernetes.io/metadata.name: kube-system   # k3s' Traefik

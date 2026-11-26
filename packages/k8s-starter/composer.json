@@ -1,0 +1,21 @@
+{
+    "name": "bmack/k8s-starter",
+    "type": "typo3-cms-extension",
+    "description": "Site package for K8s Starter",
+    "license": "proprietary",
+    "require": {
+        "typo3/cms-core": "dev-main",
+        "typo3/cms-fluid-styled-content": "dev-main",
+        "typo3/cms-rte-ckeditor": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+            "Bmack\\K8sStarter\\": "Classes/"
+        }
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "k8s_starter"
+        }
+    }
+}

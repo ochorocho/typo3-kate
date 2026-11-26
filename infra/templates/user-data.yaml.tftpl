@@ -1,0 +1,83 @@
+#cloud-config
+hostname: ${hostname}
+manage_etc_hosts: false
+timezone: Etc/UTC
+
+users:
+  - name: ubuntu
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+ssh_pwauth: false
+package_update: true
+packages:
+  - curl
+  - jq
+  - nfs-common
+  - open-iscsi
+%{ if role == "master" ~}
+  - nfs-kernel-server
+%{ endif ~}
+
+write_files:
+  - path: /etc/hosts
+    content: |
+      127.0.0.1 localhost
+      ${indent(6, hosts_entries)}
+  - path: /etc/sysctl.d/90-k8s.conf
+    content: |
+      fs.inotify.max_user_instances = 1024
+      fs.inotify.max_user_watches = 524288
+  - path: /etc/rancher/k3s/config.yaml
+    permissions: "0600"
+    content: |
+      token: "${k3s_token}"
+      node-ip: "${node_ip}"
+      flannel-iface: lan0
+%{ if role == "master" ~}
+      write-kubeconfig-mode: "0644"
+      tls-san:
+        - "${node_ip}"
+        - "${hostname}"
+%{ if !master_schedulable ~}
+      node-taint:
+        - "node-role.kubernetes.io/control-plane=true:NoSchedule"
+%{ endif ~}
+%{ else ~}
+      server: "https://${master_ip}:6443"
+%{ endif ~}
+  # Pull images from the cluster registry over plain HTTP.
+  - path: /etc/rancher/k3s/registries.yaml
+    content: |
+      mirrors:
+        "${registry}":
+          endpoint:
+            - "http://${registry}"
+%{ if role == "master" ~}
+  # Shared ReadWriteMany storage (StorageClass "nfs").
+  - path: /etc/exports
+    content: |
+      /srv/nfs ${nfs_clients}(rw,sync,no_subtree_check,no_root_squash)
+%{ for name, manifest in manifests ~}
+  # k3s applies everything in this folder on start.
+  - path: /var/lib/rancher/k3s/server/manifests/${name}
+    content: |
+      ${indent(6, manifest)}
+%{ endfor ~}
+%{ endif ~}
+
+runcmd:
+  - sysctl --system
+%{ if role == "master" ~}
+  - mkdir -p /srv/nfs
+  - exportfs -ra
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_CHANNEL=${k3s_channel} sh -s - server
+  - echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' > /etc/profile.d/kubeconfig.sh
+%{ else ~}
+  # The agent retries until the master is up, so no explicit wait is needed.
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_CHANNEL=${k3s_channel} sh -s - agent
+%{ endif ~}

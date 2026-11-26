@@ -1,0 +1,24 @@
+TYPO3 {{ .Chart.AppVersion }} deployed as "{{ .Release.Name }}" (revision {{ .Release.Revision }}).
+
+Frontend: {{ include "typo3.fullname" . }}-frontend
+{{- if .Values.backend.enabled }}
+Backend:  {{ include "typo3.fullname" . }}-backend  (routed via {{ .Values.backend.path }})
+{{- end }}
+
+Check the rollout:
+  kubectl rollout status deploy/{{ include "typo3.fullname" . }}-frontend -n {{ .Release.Namespace }}
+
+Health:
+  kubectl port-forward svc/{{ include "typo3.fullname" . }}-frontend 8080:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+  curl -s localhost:8080{{ .Values.probes.readinessPath }}
+
+Run a TYPO3 CLI command (one-off):
+  kubectl exec -it deploy/{{ include "typo3.fullname" . }}-backend -n {{ .Release.Namespace }} -- vendor/bin/typo3 list
+{{- if not .Values.typo3.existingSecret }}
+
+WARNING: the chart created the Secret from values. Use typo3.existingSecret in production.
+{{- end }}
+{{- if and (not .Values.httpRoute.enabled) (not .Values.ingress.enabled) }}
+
+NOTE: neither httpRoute nor ingress is enabled – the site is not reachable from outside yet.
+{{- end }}

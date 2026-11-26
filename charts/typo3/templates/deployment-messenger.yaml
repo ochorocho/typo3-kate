@@ -1,0 +1,32 @@
+{{- if .Values.messenger.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "typo3.fullname" . }}-messenger
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+    app.kubernetes.io/component: messenger
+spec:
+  replicas: {{ .Values.messenger.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "typo3.selectorLabels" (dict "ctx" . "component" "messenger") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "typo3.selectorLabels" (dict "ctx" . "component" "messenger") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "typo3.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # Worker exits after --time-limit, Kubernetes restarts it: cheap leak protection
+      containers:
+        {{- include "typo3.cliContainer" (dict "ctx" . "name" "messenger" "command" .Values.messenger.command "resources" .Values.messenger.resources) | nindent 8 }}
+      volumes:
+        {{- include "typo3.volumes" . | nindent 8 }}
+{{- end }}

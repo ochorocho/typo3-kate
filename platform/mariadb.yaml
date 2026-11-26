@@ -1,0 +1,92 @@
+# From bmack/typo3-k8s-starter examples/mariadb/01-mariadb.yaml (MIT).
+# typo3-kate: one replica, 1 GiB, local-path storage, no metrics.
+# Secret typo3-mariadb (root-password, typo3-password) is created by scripts/typo3-deploy.sh.
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: typo3-mariadb
+spec:
+  rootPasswordSecretKeyRef:
+    name: typo3-mariadb
+    key: root-password
+
+  image: docker-registry1.mariadb.com/library/mariadb:11.8
+
+  # typo3-kate: a single instance; the example's 3 replicas need 6 GiB.
+  # TYPO3 connects to the plain Service <name> (values: database.host).
+  replicas: 1
+
+  storage:
+    size: 5Gi
+    storageClassName: local-path   # node-local disk; fine for a single instance
+    resizeInUseVolumes: true
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 1Gi
+
+  myCnf: |
+    [mariadb]
+    bind-address=*
+    default_storage_engine=InnoDB
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+    innodb_buffer_pool_size=512M
+    max_allowed_packet=256M
+    binlog_format=ROW
+    # Reject unencrypted connections once TLS is set up (see operator TLS docs)
+    # require_secure_transport=ON
+
+---
+# One database + one least-privilege user per TYPO3 project
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Database
+metadata:
+  name: typo3
+spec:
+  mariaDbRef:
+    name: typo3-mariadb
+  characterSet: utf8mb4
+  collate: utf8mb4_unicode_ci
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: User
+metadata:
+  name: typo3
+spec:
+  mariaDbRef:
+    name: typo3-mariadb
+  passwordSecretKeyRef:
+    name: typo3-mariadb
+    key: typo3-password
+  maxUserConnections: 100
+  host: "%"
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Grant
+metadata:
+  name: typo3
+spec:
+  mariaDbRef:
+    name: typo3-mariadb
+  # TYPO3 needs DDL for extension:setup / database compare
+  privileges:
+    - SELECT
+    - INSERT
+    - UPDATE
+    - DELETE
+    - CREATE
+    - ALTER
+    - INDEX
+    - DROP
+    - CREATE TEMPORARY TABLES
+    - LOCK TABLES
+    - REFERENCES
+  database: typo3
+  table: "*"
+  username: typo3
+  host: "%"

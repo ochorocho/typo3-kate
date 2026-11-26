@@ -1,0 +1,5 @@
+# Fluid Styled Content templates: copy a template from EXT:fluid_styled_content
+# into these folders to override it.
+styles.templates.templateRootPath: 'EXT:k8s_starter/Resources/Private/Content/'
+styles.templates.layoutRootPath: 'EXT:k8s_starter/Resources/Private/Content/Layouts/'
+styles.templates.partialRootPath: 'EXT:k8s_starter/Resources/Private/Content/Partials/'

@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0">
+  <xsl:output omit-xml-declaration="yes" indent="yes"/>
+
+  <!-- Copy everything unchanged by default. -->
+  <xsl:template match="node()|@*">
+    <xsl:copy>
+      <xsl:apply-templates select="node()|@*"/>
+    </xsl:copy>
+  </xsl:template>
+%{ if aarch64 ~}
+
+  <!-- The aarch64 "virt" machine has no IDE bus: move the cloud-init ISO to SCSI. -->
+  <xsl:template match="/domain/devices/disk[@device='cdrom']/target">
+    <target dev="sda" bus="scsi"/>
+  </xsl:template>
+
+  <!-- Drop x86-only features the provider adds; HVF only emulates GICv3. -->
+  <xsl:template match="/domain/features">
+    <features>
+      <xsl:apply-templates select="*[not(self::pae or self::apic or self::gic)]"/>
+      <gic version="3"/>
+    </features>
+  </xsl:template>
+%{ endif ~}
+%{ if socket_vmnet_path != "" ~}
+
+  <!-- Connect QEMU straight to the socket_vmnet daemon (QEMU stream netdev). -->
+  <xsl:template match="/domain">
+    <xsl:copy>
+      <xsl:copy-of select="document('')/*/namespace::qemu"/>
+      <xsl:apply-templates select="node()|@*"/>
+      <qemu:commandline>
+        <qemu:arg value="-netdev"/>
+        <qemu:arg value="stream,id=vmnet0,server=off,addr.type=unix,addr.path=${socket_vmnet_path}"/>
+        <qemu:arg value="-device"/>
+        <qemu:arg value="virtio-net-pci,netdev=vmnet0,mac=${mac},bus=pcie.0,addr=0x1f"/>
+      </qemu:commandline>
+    </xsl:copy>
+  </xsl:template>
+%{ endif ~}
+</xsl:stylesheet>

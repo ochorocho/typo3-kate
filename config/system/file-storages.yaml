@@ -1,0 +1,32 @@
+# File storages (TYPO3 v15+, replaces the sys_file_storage table).
+# Versioned with the project; everything environment-specific is a placeholder.
+#
+# Storage 2 uses the "S3" driver of b13/typo3-s3-driver. While one of the
+# TYPO3_S3_* variables is missing, TYPO3 keeps storage 2 offline and
+# everything else keeps working.
+#
+#   DDEV:        Garage (ddev add-on get daniel-heg/ddev-garage), see .ddev/config.yaml
+#   k3s:         the same Garage, linked into the cluster by `ddev k8s-deploy`
+#   production:  your bucket, see values/production.yaml
+storages:
+  1:
+    name: fileadmin
+    default: true
+    configuration:
+      basePath: public/fileadmin/   # relative to the project root since v15
+  2:
+    name: 'Media (S3)'
+    driver: S3
+    configuration:
+      bucket: '%env(TYPO3_S3_BUCKET)%'
+      prefix: '%env(TYPO3_S3_PREFIX)%'
+      region: '%env(TYPO3_S3_REGION)%'
+      endpoint: '%env(TYPO3_S3_ENDPOINT)%'
+      usePathStyleEndpoint: '%env(TYPO3_S3_PATH_STYLE)%'
+      key: '%env(TYPO3_S3_KEY)%'
+      secret: '%env(TYPO3_S3_SECRET)%'
+      # Set = public storage, files are linked directly (CDN, bucket website).
+      # Remove it for a private bucket: TYPO3 then delivers through the file dump.
+      baseUri: '%env(TYPO3_S3_PUBLIC_URL)%'
+      # With an IAM role (IRSA, Pod Identity) instead of keys, drop key and secret:
+      # a placeholder without its variable keeps the storage offline.

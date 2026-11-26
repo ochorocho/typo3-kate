@@ -1,0 +1,32 @@
+# From bmack/typo3-k8s-starter examples/storage/fileadmin-rwx-pvc.yaml (MIT).
+# typo3-kate: StorageClass nfs, smaller sizes.
+# Migration path for fileadmin: start with a shared RWX volume, move to S3 later.
+# Created OUTSIDE the Helm release on purpose – 'helm uninstall' must never delete files.
+#
+# Target state: fileadmin on S3 through a FAL driver (e.g. andersundsehr/aus-driver-amazon-s3,
+# check TYPO3 v14 support of the version you pick). Then neither of these volumes is needed
+# for fileadmin, and _processed_ lives in the bucket as well.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: typo3-fileadmin
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: nfs                # infra/: NFS export on the master
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Generated assets referenced from cached pages (GIFBuilder images, concatenated
+# CSS/JS). Must be shared, or pod B returns 404 for files pod A generated.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: typo3-typo3temp-assets
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 2Gi

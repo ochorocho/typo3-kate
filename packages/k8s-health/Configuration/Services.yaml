@@ -1,0 +1,11 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  Bmack\K8sHealth\:
+    resource: '../Classes/*'
+
+  Bmack\K8sHealth\Middleware\HealthCheck:
+    public: true

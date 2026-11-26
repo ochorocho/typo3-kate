@@ -1,0 +1,37 @@
+{{- if .Values.scheduler.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "typo3.fullname" . }}-scheduler
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+spec:
+  schedule: {{ .Values.scheduler.schedule | quote }}
+  concurrencyPolicy: {{ .Values.scheduler.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.scheduler.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.scheduler.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.scheduler.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.scheduler.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "typo3.selectorLabels" (dict "ctx" . "component" "scheduler") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "typo3.serviceAccountName" . }}
+          automountServiceAccountToken: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            {{- include "typo3.cliContainer" (dict "ctx" . "name" "scheduler" "command" (list "vendor/bin/typo3" "scheduler:run") "resources" .Values.scheduler.resources) | nindent 12 }}
+          volumes:
+            {{- include "typo3.volumes" . | nindent 12 }}
+{{- end }}

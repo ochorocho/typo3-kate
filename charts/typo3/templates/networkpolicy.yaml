@@ -1,0 +1,68 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default deny for all TYPO3 pods, then allow exactly what is needed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "typo3.fullname" . }}
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "typo3.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only the gateway/ingress controller may talk to the web pods
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingressFromNamespaceLabels | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # MariaDB + Valkey
+    - to:
+        {{- if .Values.networkPolicy.dataNamespaceLabels }}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dataNamespaceLabels | nindent 14 }}
+        {{- else }}
+        - podSelector: {}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.database.port }}
+        - protocol: TCP
+          port: {{ .Values.valkey.port }}
+    {{- if .Values.networkPolicy.allowExternalEgress }}
+    # HTTPS + SMTP submission to the outside world (S3, APIs, mail relay)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 587
+    {{- end }}
+{{- end }}

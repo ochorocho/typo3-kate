@@ -1,0 +1,4 @@
+name: bmack/k8s-starter
+label: 'K8s Starter'
+dependencies:
+  - typo3/fluid-styled-content

@@ -1,0 +1,19 @@
+# Site of the cluster deployment. In bmack/typo3-k8s-starter `ddev setup`
+# creates this file; here it is versioned, so the image contains it.
+# Relative base "/": the site answers on every node IP and hostname.
+base: /
+rootPageId: 1
+websiteTitle: 'K8s Starter'
+dependencies:
+  - bmack/k8s-starter
+languages:
+  -
+    title: English
+    navigationTitle: English
+    enabled: true
+    languageId: 0
+    base: /
+    locale: en_US.UTF-8
+    flag: us
+errorHandling: []
+routes: []

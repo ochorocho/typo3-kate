@@ -1,0 +1,39 @@
+{{- if .Values.httpRoute.enabled }}
+# Gateway API (successor of Ingress; ingress-nginx was retired in March 2026)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "typo3.fullname" . }}
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+  {{- with .Values.httpRoute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- required "httpRoute.parentRefs must point to your Gateway" .Values.httpRoute.parentRefs | toYaml | nindent 4 }}
+  {{- with .Values.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- if .Values.backend.enabled }}
+    # Editors -> backend Deployment
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.backend.path }}
+      backendRefs:
+        - name: {{ include "typo3.fullname" . }}-backend
+          port: {{ .Values.service.port }}
+    {{- end }}
+    # Everybody else -> frontend Deployment
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "typo3.fullname" . }}-frontend
+          port: {{ .Values.service.port }}
+{{- end }}

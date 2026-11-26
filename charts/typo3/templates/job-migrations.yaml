@@ -1,0 +1,48 @@
+{{- if .Values.migrations.enabled }}
+{{- $commands := .Values.migrations.commands }}
+{{- $last := sub (len $commands) 1 }}
+# Runs once per release, before the new pods roll out (Helm hook).
+# Each command runs as its own (init) container – in order, with separate logs.
+# If one fails, the release fails and the old pods keep serving.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "typo3.fullname" . }}-migrations-{{ .Release.Revision }}
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "typo3.selectorLabels" (dict "ctx" . "component" "migrations") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "typo3.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if gt (len $commands) 1 }}
+      initContainers:
+        {{- range $i, $cmd := $commands }}
+        {{- if lt $i $last }}
+        {{- include "typo3.cliContainer" (dict "ctx" $ "name" (printf "step-%d" $i) "command" $cmd "resources" $.Values.migrations.resources) | nindent 8 }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      containers:
+        {{- include "typo3.cliContainer" (dict "ctx" . "name" (printf "step-%d" $last) "command" (index $commands $last) "resources" .Values.migrations.resources) | nindent 8 }}
+      volumes:
+        {{- include "typo3.volumes" . | nindent 8 }}
+{{- end }}

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: typo3
+description: Stateless, highly available TYPO3 on Kubernetes (frontend/backend split, Valkey, S3, migrations as hook)
+type: application
+version: 0.1.0
+appVersion: "15.0"
+kubeVersion: ">=1.30.0-0"
+keywords:
+  - typo3
+  - cms
+  - php
+home: https://b13.com
+maintainers:
+  - name: b13

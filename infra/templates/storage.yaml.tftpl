@@ -1,0 +1,27 @@
+# ReadWriteMany volumes: NFS export on the master + csi-driver-nfs.
+# Used for files all TYPO3 pods share (fileadmin, typo3temp/assets).
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: csi-driver-nfs
+  namespace: kube-system
+spec:
+  repo: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
+  chart: csi-driver-nfs
+  targetNamespace: kube-system
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: "${master_ip}"
+  share: /srv/nfs
+  # Subdirectories are writable for the pod's UID (TYPO3 runs as 1000).
+  mountPermissions: "0777"
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  - nfsvers=4.1

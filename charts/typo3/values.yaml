@@ -1,0 +1,265 @@
+# -----------------------------------------------------------------------------
+# TYPO3 Helm chart – default values
+# Every value is documented; production overrides live in values/production.yaml
+# -----------------------------------------------------------------------------
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: registry.example.com/acme/typo3
+  # Prefer a digest in production: tags can be overwritten, digests cannot.
+  tag: ""
+  digest: ""          # e.g. sha256:4f1c...
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Port the container listens on (FrankenPHP: SERVER_NAME=":8080")
+containerPort: 8080
+
+typo3:
+  context: Production
+  trustedHostsPattern: ".*\\.example\\.com"
+  # IP ranges of your gateway/ingress pods or load balancer (comma-separated)
+  reverseProxyIP: "10.0.0.0/8"
+  logLevel: warning
+  mailFrom: noreply@example.com
+
+  # Secrets: reference a Secret you manage outside of Helm (External Secrets,
+  # Sealed Secrets, Vault …). Expected keys:
+  #   TYPO3_ENCRYPTION_KEY, TYPO3_DB_PASSWORD
+  #   optional: TYPO3_VALKEY_PASSWORD, TYPO3_MAIL_DSN, S3 credentials …
+  existingSecret: ""
+  # Only for local/dev: let the chart create the Secret from these values.
+  secret: {}
+  #  TYPO3_ENCRYPTION_KEY: change-me
+  #  TYPO3_DB_PASSWORD: change-me
+
+  # Extra plain environment variables for all TYPO3 containers
+  extraEnv: {}
+
+database:
+  host: mariadb-primary      # the operator's primary Service (writes)
+  port: 3306
+  name: typo3
+  user: typo3
+  tls: false
+
+valkey:
+  enabled: true
+  host: valkey               # sessions, install tool sessions, locks
+  cacheHost: ""              # optional dedicated cache instance (volatile-ttl)
+  port: 6379
+  user: ""
+
+# -----------------------------------------------------------------------------
+# Frontend: serves the website, scales horizontally
+# -----------------------------------------------------------------------------
+frontend:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2           # never 1: maintenance must not cause downtime
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationSeconds: 300
+  pdb:
+    enabled: true
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# Backend: /typo3 for editors. Separate Deployment = separate scaling, separate
+# resource profile; heavy backend work never slows down visitors.
+# -----------------------------------------------------------------------------
+backend:
+  enabled: true
+  path: /typo3
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      memory: 1Gi
+  pdb:
+    enabled: false
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Spread replicas across zones. ScheduleAnyway (soft) is deliberate: with
+# DoNotSchedule, replacement pods stay Pending exactly when a zone is down.
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: ScheduleAnyway
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Health endpoints provided by the k8s-health extension (packages/k8s-health)
+probes:
+  livenessPath: /_health/live
+  readinessPath: /_health/ready
+  startup:
+    periodSeconds: 5
+    failureThreshold: 30     # up to 150s to boot (cold caches)
+  readiness:
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  liveness:
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Give the gateway time to remove the pod from rotation before shutdown
+lifecycle:
+  preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 30
+
+rollingUpdate:
+  maxSurge: 1
+  maxUnavailable: 0
+progressDeadlineSeconds: 600
+
+# -----------------------------------------------------------------------------
+# Routing: Gateway API (recommended – ingress-nginx is retired) or Ingress
+# -----------------------------------------------------------------------------
+httpRoute:
+  enabled: false
+  parentRefs: []
+  #  - name: public-gateway
+  #    namespace: gateway-system
+  #    sectionName: https
+  hostnames: []
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  #  - www.example.com
+  tls: []
+  #  - secretName: www-example-com-tls
+  #    hosts: [www.example.com]
+
+# -----------------------------------------------------------------------------
+# Release tasks: run once per release, BEFORE the new pods roll out.
+# Schema changes must be backward compatible (expand/contract), because old
+# and new pods run side by side during the rolling update.
+# -----------------------------------------------------------------------------
+migrations:
+  enabled: true
+  commands:
+    - ["vendor/bin/typo3", "extension:setup", "--no-interaction"]
+    - ["vendor/bin/typo3", "upgrade:run", "--no-interaction"]
+    - ["vendor/bin/typo3", "cache:flush", "--group", "pages"]
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# TYPO3 scheduler as CronJob. Forbid = never two runs at the same time.
+scheduler:
+  enabled: true
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  activeDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Symfony Messenger consumer (async mails, imports, slow APIs). The doctrine
+# transport is a fine start; for more background work, configure a dedicated
+# transport (e.g. Valkey via symfony/redis-messenger, or RabbitMQ) in your
+# Services.yaml and put its name into the command below.
+messenger:
+  enabled: false
+  replicaCount: 1
+  command: ["vendor/bin/typo3", "messenger:consume", "doctrine", "--time-limit=3600", "--memory-limit=256M"]
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# Storage
+# Target state: fileadmin on S3 via a FAL driver -> nothing here is needed.
+# Migration path: mount an existing RWX volume (NFS/EFS/CephFS) first.
+# -----------------------------------------------------------------------------
+persistence:
+  # Volumes are never created by the chart: a 'helm uninstall' must not be
+  # able to delete your files. Create the RWX PVC first, then reference it.
+  fileadmin:
+    enabled: false
+    existingClaim: ""
+  # typo3temp/assets holds generated files referenced from cached pages
+  # (GIFBuilder images, concatenated CSS/JS). If you use those features,
+  # share it across pods – otherwise pod B 404s on files pod A generated.
+  typo3tempAssets:
+    enabled: false
+    existingClaim: ""
+  # Pod-local scratch space (emptyDir); var/cache holds code caches only
+  varSizeLimit: 1Gi
+
+# -----------------------------------------------------------------------------
+# Security
+# -----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}            # e.g. IRSA / workload identity for S3 access
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+networkPolicy:
+  enabled: true
+  # Namespace of your gateway/ingress controller
+  ingressFromNamespaceLabels:
+    kubernetes.io/metadata.name: gateway-system
+  # Namespace labels where MariaDB/Valkey run (empty = same namespace)
+  dataNamespaceLabels: {}
+  # Allow HTTPS egress (S3, external APIs, mail relay …)
+  allowExternalEgress: true
+
+podAnnotations: {}
+podLabels: {}

@@ -1,0 +1,22 @@
+# mariadb-operator: projects create MariaDB/Database/User/Grant objects.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: mariadb-operator-crds
+  namespace: kube-system
+spec:
+  repo: https://helm.mariadb.com/mariadb-operator
+  chart: mariadb-operator-crds
+  targetNamespace: mariadb-system
+  createNamespace: true
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: mariadb-operator
+  namespace: kube-system
+spec:
+  repo: https://helm.mariadb.com/mariadb-operator
+  chart: mariadb-operator
+  targetNamespace: mariadb-system
+  createNamespace: true

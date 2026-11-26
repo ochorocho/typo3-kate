@@ -1,0 +1,49 @@
+# Gateway API on k3s' bundled Traefik (the CRDs ship with k3s).
+# One shared Gateway for all projects, as in bmack/typo3-k8s-starter's
+# examples/gateway: projects attach with an HTTPRoute.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesGateway:
+        enabled: true
+    # We create our own GatewayClass and Gateway below.
+    gateway:
+      enabled: false
+    gatewayClass:
+      enabled: false
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway-system
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public-gateway
+  namespace: gateway-system
+spec:
+  gatewayClassName: traefik
+  listeners:
+    # Port 8000 = Traefik's "web" entrypoint, exposed as port 80 on every node.
+    - name: http
+      protocol: HTTP
+      port: 8000
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              gateway-access: public

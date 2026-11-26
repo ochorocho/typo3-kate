@@ -1,0 +1,64 @@
+{
+    "name": "bmack/typo3-k8s-starter",
+    "description": "TYPO3 v15 starter project that runs on Kubernetes: DDEV for development, k3s for the production rehearsal",
+    "type": "project",
+    "license": "proprietary",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "packages/*"
+        }
+    ],
+    "require": {
+        "bmack/k8s-health": "@dev",
+        "bmack/k8s-starter": "@dev",
+        "b13/distributed-locks": "dev-main",
+        "b13/stderr-logging": "dev-main",
+        "b13/typo3-s3-driver": "dev-main",
+        "typo3/cms-backend": "dev-main",
+        "typo3/cms-belog": "dev-main",
+        "typo3/cms-beuser": "dev-main",
+        "typo3/cms-core": "dev-main",
+        "typo3/cms-dashboard": "dev-main",
+        "typo3/cms-extbase": "dev-main",
+        "typo3/cms-felogin": "dev-main",
+        "typo3/cms-filelist": "dev-main",
+        "typo3/cms-filemetadata": "dev-main",
+        "typo3/cms-fluid": "dev-main",
+        "typo3/cms-fluid-styled-content": "dev-main",
+        "typo3/cms-form": "dev-main",
+        "typo3/cms-frontend": "dev-main",
+        "typo3/cms-impexp": "dev-main",
+        "typo3/cms-indexed-search": "dev-main",
+        "typo3/cms-info": "dev-main",
+        "typo3/cms-install": "dev-main",
+        "typo3/cms-linkvalidator": "dev-main",
+        "typo3/cms-opendocs": "dev-main",
+        "typo3/cms-reactions": "dev-main",
+        "typo3/cms-recycler": "dev-main",
+        "typo3/cms-redirects": "dev-main",
+        "typo3/cms-reports": "dev-main",
+        "typo3/cms-rte-ckeditor": "dev-main",
+        "typo3/cms-scheduler": "dev-main",
+        "typo3/cms-seo": "dev-main",
+        "typo3/cms-setup": "dev-main",
+        "typo3/cms-sys-note": "dev-main",
+        "typo3/cms-tstemplate": "dev-main",
+        "typo3/cms-viewpage": "dev-main",
+        "typo3/cms-webhooks": "dev-main",
+        "typo3/cms-workspaces": "dev-main"
+    },
+    "require-dev": {
+        "typo3/cms-adminpanel": "dev-main",
+        "typo3/cms-lowlevel": "dev-main"
+    },
+    "config": {
+        "allow-plugins": {
+            "typo3/class-alias-loader": true,
+            "typo3/cms-composer-installers": true
+        },
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

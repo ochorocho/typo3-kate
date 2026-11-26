@@ -1,0 +1,24 @@
+.git
+.github
+.ddev
+.env*
+node_modules
+vendor/
+var/
+public/
+config/system/settings.php
+charts/
+values/
+examples/
+ddev-k3s/
+*.sql
+*.sql.gz
+build/
+# typo3-kate: cluster infrastructure, docs and deploy tooling never enter the image
+infra/
+Documentation/
+platform/
+scripts/
+IMPLEMENTATION_PLAN.md
+*.tfstate*
+kubeconfig*

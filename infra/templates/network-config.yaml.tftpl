@@ -1,0 +1,14 @@
+version: 2
+ethernets:
+  lan0:
+    match:
+      macaddress: "${mac}"
+    set-name: lan0
+    dhcp4: false
+    addresses:
+      - ${address}
+    routes:
+      - to: default
+        via: ${gateway}
+    nameservers:
+      addresses: [${join(", ", dns_servers)}]

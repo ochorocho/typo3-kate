@@ -1,0 +1,93 @@
+# TYPO3 architecture
+
+## Where it comes from
+
+The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter) by Benni Mack (MIT, upstream commit `2b88541`, 2026-11-26). Benni's repo develops in DDEV and rehearses in a k3s container next to DDEV. Here the same image and chart run on the libvirt cluster, with the database and caches inside the cluster.
+
+| Taken unchanged | Purpose |
+|---|---|
+| `charts/typo3/` | Helm chart: frontend and backend Deployments, migrations Job (Helm hook), scheduler CronJob, HPA, PDB, HTTPRoute, NetworkPolicy, hardened pods |
+| `config/system/additional.php`, `kubernetes.php`, `file-storages.yaml` | all configuration from `TYPO3_*` environment variables |
+| `packages/k8s-health` | `/_health/live` and `/_health/ready` (database + Valkey) |
+| `packages/k8s-starter` | site package (Site Set `bmack/k8s-starter`) |
+| `composer.json`, `composer.lock` | TYPO3 v15 (`dev-main`), b13 S3 driver, stderr logging, distributed locks |
+| `docker/Dockerfile` (one step added), `docker/php/` | FrankenPHP 1 / PHP 8.5 image: UID 1000, port 8080, read-only filesystem |
+
+| Adapted | Change |
+|---|---|
+| `platform/mariadb.yaml` | from `examples/mariadb`: 1 replica instead of 3, 1 GiB, local-path storage, no metrics |
+| `platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
+| `platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
+| `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, HTTP only |
+| `values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes |
+
+| New | Why |
+|---|---|
+| `config/sites/main/config.yaml` | In Benni's repo, `ddev setup` creates it. Here it is versioned, so the image contains it. |
+| `scripts/typo3-deploy.sh` | the counterpart of his `ddev k8s-deploy`, for a real cluster |
+| `build/bootstrap.sql` | root page and sample pages (his `seed.sql` expects the root page from `typo3 setup`) |
+| `docker/prepare-settings.php` | brings `settings.php` up to date at build time, see below |
+
+## Platform (set up by `infra/`)
+
+```
+ Mac ──push──▶ registry (master :30500) ◀──pull── nodes (registries.yaml mirror)
+
+ browser ──:80──▶ Traefik ──Gateway API──▶ public-gateway ──HTTPRoute──▶ typo3-frontend ×2
+                                                                └─/typo3──▶ typo3-backend
+ typo3 pods ──▶ typo3-mariadb (mariadb-operator)
+            ──▶ typo3-valkey (sessions, locks) / typo3-valkey-cache (caches)
+            ──▶ NFS on the master (fileadmin, typo3temp/assets)
+```
+
+| Component | Installed by | Notes |
+|---|---|---|
+| Registry | k3s manifest, `registry:3` on the master | plain HTTP. Every node has a containerd mirror for it |
+| RWX storage | `nfs-kernel-server` on the master + `csi-driver-nfs` | StorageClass `nfs`, `reclaimPolicy: Retain` |
+| Gateway API | k3s ships the CRDs; Traefik's provider is switched on | GatewayClass `traefik`, Gateway `gateway-system/public-gateway`; namespaces need the label `gateway-access: public` |
+| mariadb-operator | HelmCharts `mariadb-operator-crds` + `mariadb-operator` | namespace `mariadb-system` |
+
+## Why `settings.php` is prepared at build time
+
+Benni's image has a read-only, environment-free `settings.php`: "TYPO3 never writes this file at runtime." On a fresh database, the migrations Job broke that rule twice:
+
+1. `extension:setup` writes the default configuration of every extension that has an `ext_conf_template.txt`, whenever it is missing from `settings.php`.
+2. `upgrade:run` applies TYPO3's silent configuration upgrades. The first one generates an encryption key whenever the **file** has none, even though `kubernetes.php` sets the real key from the environment.
+
+`docker/prepare-settings.php` runs in the image build, boots TYPO3 without a database and applies both, until nothing is left to change. `docker/settings.php` carries the placeholder `set-from-env-TYPO3_ENCRYPTION_KEY`, so no real key is generated into the image. `kubernetes.php` always replaces the placeholder with `TYPO3_ENCRYPTION_KEY`.
+
+## Why the first install is a separate pod
+
+In TYPO3 v15, `extension:setup` authenticates the CLI user first, so it needs `be_users` to exist. It can update a database but not create one. The deploy script therefore runs `typo3 setup` once, in a pod with the same image, when `be_users` is missing. `setup` writes its own `settings.php`, so the pod gets a writable copy of `config/system` that is thrown away with the pod.
+
+## Secrets
+
+Created once by the deploy script, never stored in git or Helm:
+
+| Secret | Keys |
+|---|---|
+| `typo3-env` | `TYPO3_ENCRYPTION_KEY`, `TYPO3_DB_PASSWORD`, `TYPO3_VALKEY_PASSWORD` (all TYPO3 pods via `envFrom`) |
+| `typo3-mariadb` | `root-password`, `typo3-password` |
+| `typo3-valkey` | `password` |
+| `typo3-admin` | `username`, `password` of the backend admin |
+
+## Resource budget
+
+Requests on the two workers (6 GiB each):
+
+| Workload | CPU | Memory |
+|---|---|---|
+| frontend ×2 | 400m | 768 Mi |
+| backend | 100m | 384 Mi |
+| MariaDB | 500m | 1 Gi |
+| Valkey + cache | 150m | 704 Mi |
+| **total** | **1.15 CPU** | **≈ 2.9 GiB** |
+
+Headlamp, the operator and the platform components come on top, so there is room for the HPA's two extra frontend pods.
+
+## Not done yet
+
+- **TLS:** the Gateway listens on HTTP only. Next step: cert-manager plus a `https` listener, as in Benni's example.
+- **Backups:** `examples/mariadb/02-backups.yaml` (mariadb-operator Backup CR) isn't applied.
+- **S3 storage 2:** stays offline until `TYPO3_S3_*` is set, for example with Garage in the cluster.
+- **High availability:** MariaDB and Valkey run as single instances.
