@@ -176,8 +176,44 @@ variable "registry_size_gb" {
   default     = 10
 }
 
+variable "cert_manager_version" {
+  description = "cert-manager Helm chart version."
+  type        = string
+  default     = "v1.21.3"
+}
+
+variable "acme_domain" {
+  description = "Public hostname for a Let's Encrypt certificate on the Gateway, e.g. kate.ochorocho.dev. Needs hetzner_dns_token. null = IP access with the cluster CA only."
+  type        = string
+  default     = null
+}
+
+variable "acme_environment" {
+  description = "Let's Encrypt environment: staging (untrusted test certificates, generous limits) or production."
+  type        = string
+  default     = "staging"
+
+  validation {
+    condition     = contains(["staging", "production"], var.acme_environment)
+    error_message = "acme_environment must be staging or production."
+  }
+}
+
+variable "acme_email" {
+  description = "Optional contact address for the Let's Encrypt account."
+  type        = string
+  default     = null
+}
+
+variable "hetzner_dns_token" {
+  description = "Hetzner Console API token (read+write) for DNS-01. Pass it as TF_VAR_hetzner_dns_token, never in a committed file."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
 variable "wait_for_cluster" {
-  description = "Wait until all nodes and the dashboard are ready, then write ./kubeconfig. Needs SSH from this machine to the VMs."
+  description = "After copying the manifests, wait until the dashboard and the platform (registry, storage, operators, Gateway, certificate) are ready."
   type        = bool
   default     = true
 }

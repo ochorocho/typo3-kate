@@ -62,12 +62,6 @@ write_files:
   - path: /etc/exports
     content: |
       /srv/nfs ${nfs_clients}(rw,sync,no_subtree_check,no_root_squash)
-%{ for name, manifest in manifests ~}
-  # k3s applies everything in this folder on start.
-  - path: /var/lib/rancher/k3s/server/manifests/${name}
-    content: |
-      ${indent(6, manifest)}
-%{ endfor ~}
 %{ endif ~}
 
 runcmd:

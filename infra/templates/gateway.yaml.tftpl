@@ -93,6 +93,24 @@ spec:
           selector:
             matchLabels:
               gateway-access: public
+%{ if domain != "" ~}
+    # The public name with a Let's Encrypt certificate (acme.yaml.tftpl).
+    # Requests by IP address keep using the cluster CA listener above.
+    - name: https-domain
+      hostname: "${domain}"
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: site-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              gateway-access: public
+%{ endif ~}
 ---
 # Redirect plain HTTP to HTTPS for everything
 apiVersion: gateway.networking.k8s.io/v1

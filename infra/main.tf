@@ -39,8 +39,17 @@ locals {
 
   registry = "${local.master.ip}:${var.registry_node_port}"
 
-  # Applied by k3s from /var/lib/rancher/k3s/server/manifests on the master.
-  master_manifests = {
+  # Let's Encrypt only with a domain and a token (the token itself stays sensitive).
+  acme_enabled = var.acme_domain != null && nonsensitive(var.hetzner_dns_token != null)
+  acme_issuers = {
+    "letsencrypt-staging" = "https://acme-staging-v02.api.letsencrypt.org/directory"
+    "letsencrypt"         = "https://acme-v02.api.letsencrypt.org/directory"
+  }
+
+  # Copied to /var/lib/rancher/k3s/server/manifests on the master over SSH
+  # (terraform_data.platform), where k3s applies them. Not part of cloud-init,
+  # so changing them never rebuilds the VMs.
+  master_manifests = merge({
     "dashboard.yaml" = templatefile("${path.module}/templates/dashboard.yaml.tftpl", {
       node_port = var.dashboard_node_port
     })
@@ -55,9 +64,21 @@ locals {
     "gateway.yaml" = templatefile("${path.module}/templates/gateway.yaml.tftpl", {
       tls_crt = base64encode("${tls_locally_signed_cert.gateway.cert_pem}${tls_self_signed_cert.ca.cert_pem}")
       tls_key = base64encode(tls_private_key.gateway.private_key_pem)
+      domain  = local.acme_enabled ? var.acme_domain : ""
     })
     "mariadb-operator.yaml" = file("${path.module}/templates/mariadb-operator.yaml.tftpl")
-  }
+    "cert-manager.yaml" = templatefile("${path.module}/templates/cert-manager.yaml.tftpl", {
+      cert_manager_version = var.cert_manager_version
+    })
+    }, local.acme_enabled ? {
+    "acme.yaml" = templatefile("${path.module}/templates/acme.yaml.tftpl", {
+      hetzner_token = var.hetzner_dns_token
+      issuers       = local.acme_issuers
+      email         = var.acme_email == null ? "" : var.acme_email
+      domain        = var.acme_domain
+      issuer        = var.acme_environment == "production" ? "letsencrypt" : "letsencrypt-staging"
+    })
+  } : {})
 }
 
 resource "random_password" "k3s_token" {
@@ -188,7 +209,6 @@ resource "libvirt_cloudinit_disk" "init" {
     k3s_token          = random_password.k3s_token.result
     k3s_channel        = var.k3s_channel
     master_schedulable = var.master_schedulable
-    manifests          = local.master_manifests
     registry           = local.registry
     nfs_clients        = var.network_cidr
   })
@@ -271,6 +291,11 @@ resource "libvirt_domain" "node" {
   }
 
   lifecycle {
+    # libvirt stores firmware/NVRAM paths with symlinks resolved (Homebrew's
+    # Cellar/<version>/...), which never matches the config and would rebuild
+    # every VM on each apply.
+    ignore_changes = [firmware, nvram]
+
     precondition {
       condition     = var.network_mode != "socket_vmnet" || local.is_macos
       error_message = "network_mode = socket_vmnet only works with platform = macos."
@@ -285,8 +310,6 @@ resource "libvirt_domain" "node" {
 # --- Wait for the cluster and fetch kubeconfig ---------------------------
 
 resource "terraform_data" "cluster_ready" {
-  count = var.wait_for_cluster ? 1 : 0
-
   triggers_replace = [for d in libvirt_domain.node : d.id]
 
   provisioner "local-exec" {
@@ -295,7 +318,36 @@ resource "terraform_data" "cluster_ready" {
       MASTER_IP      = local.master.ip
       EXPECTED_NODES = length(local.nodes)
       KUBECONFIG_OUT = "${path.module}/kubeconfig"
-      REGISTRY       = local.registry
+    }
+  }
+}
+
+# --- Platform manifests --------------------------------------------------
+
+resource "local_sensitive_file" "manifest" {
+  # Iterate over the names: the contents hold keys and tokens.
+  for_each = toset(keys(local.master_manifests))
+
+  filename        = "${path.module}/.manifests/${each.key}"
+  content         = local.master_manifests[each.key]
+  file_permission = "0600"
+}
+
+resource "terraform_data" "platform" {
+  # Re-run on new VMs or whenever a manifest changes (hash only, no secrets).
+  triggers_replace = {
+    cluster   = terraform_data.cluster_ready.id
+    manifests = nonsensitive(sha256(jsonencode([for k, f in local_sensitive_file.manifest : "${k}:${f.content_sha256}"])))
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/scripts/push-manifests.sh"
+    environment = {
+      MASTER_IP    = local.master.ip
+      MANIFEST_DIR = "${path.module}/.manifests"
+      WAIT         = var.wait_for_cluster ? "1" : "0"
+      REGISTRY     = local.registry
+      ACME_ENABLED = local.acme_enabled ? "1" : "0"
     }
   }
 }

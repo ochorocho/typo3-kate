@@ -4,3 +4,4 @@
 kubeconfig
 apply.log
 cluster-ca.crt
+.manifests/

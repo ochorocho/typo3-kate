@@ -44,7 +44,9 @@ httpRoute:
   parentRefs:
     - name: public-gateway             # infra/templates/gateway.yaml.tftpl
       namespace: gateway-system
-      sectionName: https              # TLS ends here; plain HTTP redirects
+      # No sectionName: attach to every listener that admits this namespace,
+      # i.e. https (node IPs, cluster CA) and https-domain (Let's Encrypt).
+      # The http listener only serves the redirect to HTTPS.
   hostnames: []                        # any host
 
 persistence:

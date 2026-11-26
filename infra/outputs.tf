@@ -15,7 +15,7 @@ output "dashboard_url" {
 
 output "kubeconfig" {
   description = "Use the cluster from this machine."
-  value       = var.wait_for_cluster ? "export KUBECONFIG=${abspath(path.module)}/kubeconfig" : "run: MASTER_IP=${local.master.ip} EXPECTED_NODES=${length(local.nodes)} scripts/wait-for-cluster.sh"
+  value       = "export KUBECONFIG=${abspath(path.module)}/kubeconfig"
 }
 
 output "dashboard_token_command" {
@@ -30,7 +30,7 @@ output "ca_certificate" {
 
 output "site_url" {
   description = "Applications behind the Gateway (HTTPS; plain HTTP redirects)."
-  value       = "https://${local.master.ip}/"
+  value       = local.acme_enabled ? "https://${var.acme_domain}/" : "https://${local.master.ip}/"
 }
 
 output "registry" {

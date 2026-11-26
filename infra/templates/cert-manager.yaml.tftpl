@@ -1,0 +1,30 @@
+# cert-manager + the official Hetzner DNS webhook (Hetzner Cloud API).
+# Let's Encrypt issuers and certificates come from acme.yaml.tftpl.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: ${cert_manager_version}
+  targetNamespace: cert-manager
+  valuesContent: |-
+    crds:
+      enabled: true
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager-webhook-hetzner
+  namespace: kube-system
+spec:
+  repo: https://charts.hetzner.cloud
+  chart: cert-manager-webhook-hetzner
+  targetNamespace: cert-manager

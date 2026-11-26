@@ -1,0 +1,49 @@
+# Let's Encrypt via DNS-01 on Hetzner DNS: the cluster isn't reachable from
+# the internet, so cert-manager proves ownership with a TXT record instead.
+# Only present when acme_domain and hetzner_dns_token are set.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hetzner
+  namespace: cert-manager
+type: Opaque
+stringData:
+  token: ${jsonencode(hetzner_token)}
+%{ for name, server in issuers ~}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ${name}
+spec:
+  acme:
+    server: ${server}
+%{ if email != "" ~}
+    email: ${email}
+%{ endif ~}
+    privateKeySecretRef:
+      name: ${name}-account
+    solvers:
+      - dns01:
+          webhook:
+            groupName: acme.hetzner.com
+            solverName: hetzner
+            config:
+              tokenSecretKeyRef:
+                name: hetzner
+                key: token
+%{ endfor ~}
+---
+# Certificate for the Gateway's https-domain listener (gateway.yaml.tftpl).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: site
+  namespace: gateway-system
+spec:
+  secretName: site-tls
+  dnsNames:
+    - ${domain}
+  issuerRef:
+    kind: ClusterIssuer
+    name: ${issuer}

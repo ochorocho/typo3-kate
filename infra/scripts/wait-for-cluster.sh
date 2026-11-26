@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Waits until all k3s nodes and the dashboard are ready, then writes a kubeconfig.
-# Env: MASTER_IP, EXPECTED_NODES, REGISTRY, KUBECONFIG_OUT (default ./kubeconfig), TIMEOUT (seconds, default 1200)
+# Waits until all k3s nodes are ready, then writes a kubeconfig.
+# The platform comes afterwards: scripts/push-manifests.sh.
+# Env: MASTER_IP, EXPECTED_NODES, KUBECONFIG_OUT (default ./kubeconfig), TIMEOUT (seconds, default 1200)
 set -euo pipefail
 
 : "${MASTER_IP:?MASTER_IP is required}"
@@ -35,15 +36,6 @@ nodes_ready() {
 wait_until "SSH on master ${MASTER_IP}" ssh_master true
 wait_until "k3s API" ssh_master "sudo k3s kubectl get --raw=/readyz"
 wait_until "${EXPECTED_NODES} Ready nodes" nodes_ready
-wait_until "dashboard deployment" ssh_master "sudo k3s kubectl -n headlamp get deploy headlamp"
-wait_until "dashboard rollout" ssh_master "sudo k3s kubectl -n headlamp rollout status deploy/headlamp --timeout=30s"
-
-# Platform for applications
-k="sudo k3s kubectl"
-wait_until "registry" ssh_master "curl -fsS http://${REGISTRY:-127.0.0.1:30500}/v2/"
-wait_until "NFS storage driver" ssh_master "$k -n kube-system rollout status deploy/csi-nfs-controller --timeout=30s"
-wait_until "mariadb-operator" ssh_master "$k -n mariadb-system rollout status deploy/mariadb-operator --timeout=30s"
-wait_until "Gateway" ssh_master "$k -n gateway-system wait gateway/public-gateway --for=condition=Programmed --timeout=30s"
 
 ssh_master "cat /etc/rancher/k3s/k3s.yaml" | sed "s/127.0.0.1/${MASTER_IP}/" > "${KUBECONFIG_OUT}"
 chmod 600 "${KUBECONFIG_OUT}"
