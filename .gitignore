@@ -24,3 +24,7 @@ Thumbs.db
 # ddev-k3s: generated kubeconfig and image tarballs
 /.ddev/k3s/output/
 /.ddev/k3s/images/
+
+# Editor swap files (may hold unsaved secrets, e.g. from infra/.env)
+*.swp
+*.swo
