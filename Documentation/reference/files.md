@@ -42,11 +42,12 @@ config/system/                 configuration from environment variables
 config/sites/main/             site configuration (versioned, baked into the image)
 packages/                      k8s-health (health checks), k8s-starter (site package)
 docker/                        production image; prepare-settings.php runs at build time
-charts/typo3/                  Helm chart (unchanged from upstream)
-values/cluster.yaml            values for this cluster
-platform/                      MariaDB, Valkey, RWX volumes for namespace typo3
-build/bootstrap.sql            first pages for an empty database
-scripts/typo3-deploy.sh        build, push, deploy
+k8s/                           everything that runs on the cluster
+├── deploy.sh                  build, push, deploy
+├── charts/typo3/              Helm chart (unchanged from upstream)
+├── values/cluster.yaml        values for this cluster
+├── platform/                  MariaDB, Valkey, RWX volumes for namespace typo3
+└── bootstrap.sql              first pages for an empty database
 LICENSE-typo3-k8s-starter      MIT license of the upstream project
 .github/workflows/ci.yml       lint (PHP, shell, Helm, kubeconform), OpenTofu, image + smoke test
 .github/workflows/docs.yml     builds this documentation, publishes it to GitHub Pages

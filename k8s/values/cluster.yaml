@@ -1,12 +1,12 @@
 # Our 3-node libvirt/k3s cluster (infra/). Based on values/production.yaml of
-# bmack/typo3-k8s-starter; scripts/typo3-deploy.sh adds image.repository and image.digest:
-#   helm upgrade --install typo3 charts/typo3 -n typo3 -f values/cluster.yaml \
+# bmack/typo3-k8s-starter; k8s/deploy.sh adds image.repository and image.digest:
+#   helm upgrade --install typo3 k8s/charts/typo3 -n typo3 -f k8s/values/cluster.yaml \
 #     --set image.repository=<master-ip>:30500/typo3 --set image.digest=sha256:...
 
 typo3:
   trustedHostsPattern: ".*"           # the site answers on every node IP
   reverseProxyIP: "10.42.0.0/16"      # Traefik runs as a pod in k3s' pod network
-  existingSecret: typo3-env           # created once by scripts/typo3-deploy.sh, never by Helm
+  existingSecret: typo3-env           # created once by k8s/deploy.sh, never by Helm
   logLevel: notice
   mailFrom: noreply@typo3-kate.local
   extraEnv:
@@ -55,7 +55,7 @@ httpRoute:
 persistence:
   fileadmin:
     enabled: true
-    existingClaim: typo3-fileadmin     # platform/storage.yaml (NFS, RWX)
+    existingClaim: typo3-fileadmin     # k8s/platform/storage.yaml (NFS, RWX)
   typo3tempAssets:
     enabled: true
     existingClaim: typo3-typo3temp-assets

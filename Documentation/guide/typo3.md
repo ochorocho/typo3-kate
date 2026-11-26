@@ -19,21 +19,21 @@ kubectl -n typo3 get secret typo3-admin -o jsonpath='{.data.password}' | base64 
 Requirements: a cluster from `infra/` (`tofu apply`), plus `docker`, `kubectl`, `helm`, `jq` and `tofu` on your machine.
 
 ```sh
-./scripts/typo3-deploy.sh
+./k8s/deploy.sh
 ```
 
 The script:
 
 1. builds `docker/Dockerfile` for the nodes' architecture and pushes it to the cluster registry (`<master-ip>:30500`). The release then uses the image's **digest**, not a tag.
 2. creates the namespace `typo3` and, the first time only, the Secrets with random passwords
-3. applies `platform/` (MariaDB, two Valkey instances, two RWX volumes) and waits until they are ready
-4. **empty database only:** runs `typo3 setup` in a one-off pod (schema and admin user), then imports the root page, About and Contact (`build/bootstrap.sql`)
-5. runs `helm upgrade --install` with `charts/typo3` and `values/cluster.yaml`. Before the new pods start, the chart's migrations Job runs `extension:setup`, `upgrade:run` and `cache:flush --group pages`.
+3. applies `k8s/platform/` (MariaDB, two Valkey instances, two RWX volumes) and waits until they are ready
+4. **empty database only:** runs `typo3 setup` in a one-off pod (schema and admin user), then imports the root page, About and Contact (`k8s/bootstrap.sql`)
+5. runs `helm upgrade --install` with `k8s/charts/typo3` and `k8s/values/cluster.yaml`. Before the new pods start, the chart's migrations Job runs `extension:setup`, `upgrade:run` and `cache:flush --group pages`.
 
 Running it again is safe: Secrets, the database and the pages are left as they are, and the new image rolls out without downtime.
 
 ```sh
-./scripts/typo3-deploy.sh --no-build    # re-apply values/chart with the deployed image
+./k8s/deploy.sh --no-build    # re-apply values/chart with the deployed image
 ```
 
 ::: tip macOS: kubectl blocked
@@ -62,7 +62,7 @@ Files in `fileadmin/` and `typo3temp/assets/` are on NFS volumes that all pods s
 Change code, templates or `composer.lock`, then deploy:
 
 ```sh
-./scripts/typo3-deploy.sh
+./k8s/deploy.sh
 kubectl -n typo3 rollout status deploy/typo3-frontend
 ```
 
@@ -99,7 +99,7 @@ kubectl -n typo3 exec deploy/typo3-backend -- vendor/bin/typo3 cache:flush
 kubectl -n typo3 get hpa
 ```
 
-The frontend scales between 2 and 4 pods with CPU load (`frontend.autoscaling` in `values/cluster.yaml`). For more than 4, also raise the worker memory in `infra/`.
+The frontend scales between 2 and 4 pods with CPU load (`frontend.autoscaling` in `k8s/values/cluster.yaml`). For more than 4, also raise the worker memory in `infra/`.
 
 ## Start over
 
@@ -110,4 +110,4 @@ helm -n typo3 uninstall typo3
 kubectl delete namespace typo3
 ```
 
-The NFS volumes use `reclaimPolicy: Retain`, so their files stay in `/srv/nfs` on the master until you delete them there. The next `./scripts/typo3-deploy.sh` installs a fresh site.
+The NFS volumes use `reclaimPolicy: Retain`, so their files stay in `/srv/nfs` on the master until you delete them there. The next `./k8s/deploy.sh` installs a fresh site.

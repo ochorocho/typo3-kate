@@ -17,8 +17,7 @@ build/
 # typo3-kate: cluster infrastructure, docs and deploy tooling never enter the image
 infra/
 Documentation/
-platform/
-scripts/
+k8s/
 IMPLEMENTATION_PLAN.md
 *.tfstate*
 kubeconfig*

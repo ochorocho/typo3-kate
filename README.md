@@ -34,7 +34,7 @@ cd ..
 **3. Deploy TYPO3** (about 5 minutes the first time):
 
 ```sh
-./scripts/typo3-deploy.sh
+./k8s/deploy.sh
 ```
 
 **4. Open it:**
@@ -62,7 +62,7 @@ sudo usermod -aG libvirt,kvm "$USER"      # log out and back in
 # install OpenTofu, Docker, helm and jq
 
 cd infra && tofu init && tofu apply -var-file=odroid.tfvars && cd ..
-./scripts/typo3-deploy.sh
+./k8s/deploy.sh
 ```
 
 The site is then on http://10.17.3.10/. To reach it from other machines, put the VMs on your LAN: see [Odroid H2 host](https://ochorocho.github.io/typo3-kate/guide/odroid).
@@ -70,7 +70,7 @@ The site is then on http://10.17.3.10/. To reach it from other machines, put the
 ## Everyday commands
 
 ```sh
-./scripts/typo3-deploy.sh                            # build and roll out a new version
+./k8s/deploy.sh                                      # build and roll out a new version
 helm -n typo3 rollback typo3 <revision>              # go back to an earlier release
 kubectl -n typo3 logs deploy/typo3-frontend -f       # logs
 cd infra && tofu destroy -var-file=macos.tfvars -parallelism=1   # remove everything
@@ -79,14 +79,16 @@ cd infra && tofu destroy -var-file=macos.tfvars -parallelism=1   # remove everyt
 ## Layout
 
 ```
-infra/                OpenTofu: VMs, k3s and the cluster platform
-charts/typo3/         Helm chart (from typo3-k8s-starter)
-docker/               production image (FrankenPHP, PHP 8.5)
-config/, packages/    TYPO3 project: configuration from env vars, health checks, site package
-values/cluster.yaml   Helm values for this cluster
-platform/             MariaDB, Valkey and volumes for the typo3 namespace
-scripts/              typo3-deploy.sh
-Documentation/        VitePress docs (npm run dev)
+infra/                 OpenTofu: VMs, k3s and the cluster platform
+k8s/                   everything that runs on the cluster
+├── deploy.sh          build, push and deploy TYPO3
+├── charts/typo3/      Helm chart (from typo3-k8s-starter)
+├── values/cluster.yaml  Helm values for this cluster
+├── platform/          MariaDB, Valkey and volumes for the typo3 namespace
+└── bootstrap.sql      first pages for an empty database
+docker/                production image (FrankenPHP, PHP 8.5)
+config/, packages/     TYPO3 project: configuration from env vars, health checks, site package
+Documentation/         VitePress docs (npm run dev)
 ```
 
 ## Credits

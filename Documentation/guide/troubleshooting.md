@@ -102,7 +102,7 @@ kubectl -n typo3 logs -l app.kubernetes.io/component=migrations --all-containers
 | Message | Cause |
 |---|---|
 | `Table 'typo3.be_users' doesn't exist` | the database is empty: `extension:setup` can't install TYPO3. The deploy script runs `typo3 setup` first when `be_users` is missing. Check that step's output. |
-| `config/system/settings.php is not writable` | `settings.php` in the image is missing something TYPO3 wants to add. `docker/prepare-settings.php` adds it at build time: rebuild with `./scripts/typo3-deploy.sh`. See [TYPO3 architecture](../reference/typo3-architecture#why-settings-php-is-prepared-at-build-time). |
+| `config/system/settings.php is not writable` | `settings.php` in the image is missing something TYPO3 wants to add. `docker/prepare-settings.php` adds it at build time: rebuild with `./k8s/deploy.sh`. See [TYPO3 architecture](../reference/typo3-architecture#why-settings-php-is-prepared-at-build-time). |
 
 After a failed first install, Helm keeps a failed release. Remove it before you retry:
 
@@ -124,7 +124,7 @@ kubectl -n typo3 logs deploy/typo3-frontend --tail=50
 
 The Gateway serves HTTP only. Benni's `kubernetes.php` treats every request from the trusted proxy as HTTPS (`reverseProxySSL` falls back to `TYPO3_REVERSE_PROXY_IP`), because in production TLS ends at the gateway. TYPO3 then builds `https://` redirects, and Traefik has no HTTPS route, so it answers with its own 404.
 
-`values/cluster.yaml` switches this off with `TYPO3_REVERSE_PROXY_SSL: "none"`. Check that the pods have it:
+`k8s/values/cluster.yaml` switches this off with `TYPO3_REVERSE_PROXY_SSL: "none"`. Check that the pods have it:
 
 ```sh
 kubectl -n typo3 exec deploy/typo3-backend -- printenv TYPO3_REVERSE_PROXY_SSL   # none

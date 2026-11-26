@@ -5,14 +5,14 @@
 # 1. builds the production image (docker/Dockerfile) and pushes it to the
 #    cluster registry; the release uses its digest
 # 2. creates the namespace and, once, the Secrets with random passwords
-# 3. applies platform/ (MariaDB, Valkey, RWX volumes) and waits for it
+# 3. applies k8s/platform/ (MariaDB, Valkey, RWX volumes) and waits for it
 # 4. empty database only: `typo3 setup` in a one-off pod (schema + admin user),
-#    then the root page and sample pages (build/bootstrap.sql). The chart's
+#    then the root page and sample pages (k8s/bootstrap.sql). The chart's
 #    migrations hook can't do this: extension:setup needs be_users to exist.
-# 5. runs `helm upgrade --install` with charts/typo3 and values/cluster.yaml
+# 5. runs `helm upgrade --install` with k8s/charts/typo3 and k8s/values/cluster.yaml
 #    (the chart's migrations hook runs extension:setup first)
 #
-# Usage: scripts/typo3-deploy.sh [--no-build]
+# Usage: k8s/deploy.sh [--no-build]
 # Env:   KUBECONFIG (default infra/kubeconfig), REGISTRY (default: tofu output),
 #        NAMESPACE (typo3), RELEASE (typo3)
 set -euo pipefail
@@ -104,7 +104,7 @@ fi
 
 # --- 3. platform ----------------------------------------------------------------
 step "MariaDB, Valkey, volumes"
-k apply -f "${ROOT}/platform/"
+k apply -f "${ROOT}/k8s/platform/"
 k wait mariadb/typo3-mariadb --for=condition=Ready --timeout=10m
 k wait database/typo3 user/typo3 grant/typo3 --for=condition=Ready --timeout=5m
 k rollout status statefulset/typo3-valkey --timeout=5m
@@ -185,15 +185,15 @@ YAML
   fi
   k logs typo3-install | grep -vE '"level":"(debug|info|notice)"' | tail -5
   k delete pod typo3-install >/dev/null
-  mariadb_root < "${ROOT}/build/bootstrap.sql"
+  mariadb_root < "${ROOT}/k8s/bootstrap.sql"
   echo "Root page, About and Contact created"
 fi
 
 # --- 5. helm ----------------------------------------------------------------------
 step "Helm release ${RELEASE}"
-helm upgrade --install "${RELEASE}" "${ROOT}/charts/typo3" \
+helm upgrade --install "${RELEASE}" "${ROOT}/k8s/charts/typo3" \
   --namespace "${NAMESPACE}" \
-  -f "${ROOT}/values/cluster.yaml" \
+  -f "${ROOT}/k8s/values/cluster.yaml" \
   --set image.repository="${REGISTRY}/typo3" \
   --set image.digest="${DIGEST}" \
   --wait --timeout 15m

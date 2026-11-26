@@ -6,7 +6,7 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 
 | Taken unchanged | Purpose |
 |---|---|
-| `charts/typo3/` | Helm chart: frontend and backend Deployments, migrations Job (Helm hook), scheduler CronJob, HPA, PDB, HTTPRoute, NetworkPolicy, hardened pods |
+| `k8s/charts/typo3/` | Helm chart: frontend and backend Deployments, migrations Job (Helm hook), scheduler CronJob, HPA, PDB, HTTPRoute, NetworkPolicy, hardened pods |
 | `config/system/additional.php`, `kubernetes.php`, `file-storages.yaml` | all configuration from `TYPO3_*` environment variables |
 | `packages/k8s-health` | `/_health/live` and `/_health/ready` (database + Valkey) |
 | `packages/k8s-starter` | site package (Site Set `bmack/k8s-starter`) |
@@ -15,17 +15,17 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 
 | Adapted | Change |
 |---|---|
-| `platform/mariadb.yaml` | from `examples/mariadb`: 1 replica instead of 3, 1 GiB, local-path storage, no metrics |
-| `platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
-| `platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
+| `k8s/platform/mariadb.yaml` | from `examples/mariadb`: 1 replica instead of 3, 1 GiB, local-path storage, no metrics |
+| `k8s/platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
+| `k8s/platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
 | `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, HTTP only |
-| `values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes; HTTPS detection off while the Gateway is HTTP only |
+| `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes; HTTPS detection off while the Gateway is HTTP only |
 
 | New | Why |
 |---|---|
 | `config/sites/main/config.yaml` | In Benni's repo, `ddev setup` creates it. Here it is versioned, so the image contains it. |
-| `scripts/typo3-deploy.sh` | the counterpart of his `ddev k8s-deploy`, for a real cluster |
-| `build/bootstrap.sql` | root page and sample pages (his `seed.sql` expects the root page from `typo3 setup`) |
+| `k8s/deploy.sh` | the counterpart of his `ddev k8s-deploy`, for a real cluster |
+| `k8s/bootstrap.sql` | root page and sample pages (his `seed.sql` expects the root page from `typo3 setup`) |
 | `docker/prepare-settings.php` | brings `settings.php` up to date at build time, see below |
 
 ## Platform (set up by `infra/`)
@@ -87,7 +87,7 @@ Headlamp, the operator and the platform components come on top, so there is room
 
 ## Not done yet
 
-- **TLS:** the Gateway listens on HTTP only, so `values/cluster.yaml` sets `TYPO3_REVERSE_PROXY_SSL: "none"` (otherwise TYPO3 redirects to `https://`). Next step: cert-manager plus a `https` listener, as in Benni's example, then remove that setting.
+- **TLS:** the Gateway listens on HTTP only, so `k8s/values/cluster.yaml` sets `TYPO3_REVERSE_PROXY_SSL: "none"` (otherwise TYPO3 redirects to `https://`). Next step: cert-manager plus a `https` listener, as in Benni's example, then remove that setting.
 - **Backups:** `examples/mariadb/02-backups.yaml` (mariadb-operator Backup CR) isn't applied.
 - **S3 storage 2:** stays offline until `TYPO3_S3_*` is set, for example with Garage in the cluster.
 - **High availability:** MariaDB and Valkey run as single instances.

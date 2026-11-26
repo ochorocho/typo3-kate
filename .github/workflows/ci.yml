@@ -1,4 +1,4 @@
-# Based on the CI of bmack/typo3-k8s-starter, extended for infra/ and platform/.
+# Based on the CI of bmack/typo3-k8s-starter, extended for infra/ and k8s/.
 name: ci
 
 on:
@@ -21,19 +21,19 @@ jobs:
       - name: PHP syntax
         run: find config packages docker -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Shell scripts
-        run: shellcheck -x scripts/*.sh infra/scripts/*.sh
+        run: shellcheck -x k8s/*.sh infra/scripts/*.sh
       - uses: azure/setup-helm@v4
       - name: Helm chart
         run: |
-          helm lint charts/typo3 -f values/cluster.yaml \
+          helm lint k8s/charts/typo3 -f k8s/values/cluster.yaml \
             --set image.repository=ci/typo3 --set image.tag=ci
-          helm template ci charts/typo3 -n typo3 -f values/cluster.yaml \
+          helm template ci k8s/charts/typo3 -n typo3 -f k8s/values/cluster.yaml \
             --set image.repository=ci/typo3 --set image.tag=ci > rendered-cluster.yaml
       - name: Kubernetes schemas
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
-          # platform/mariadb.yaml only has mariadb-operator CRDs, which kubeconform skips
-          ./kubeconform -strict -summary -ignore-missing-schemas rendered-cluster.yaml platform/
+          # k8s/platform/mariadb.yaml only has mariadb-operator CRDs, which kubeconform skips
+          ./kubeconform -strict -summary -ignore-missing-schemas rendered-cluster.yaml k8s/platform/
 
   infra:
     runs-on: ubuntu-latest
