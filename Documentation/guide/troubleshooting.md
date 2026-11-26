@@ -167,3 +167,20 @@ On purpose: without the token the run would empty the DNS Secret, and renewals w
 ```sh
 export TF_VAR_hetzner_dns_token="$(ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
 ```
+
+## TYPO3: "Media (S3)" shows as offline
+
+TYPO3 keeps storage 2 offline while any `TYPO3_S3_*` variable is missing, or when it can't reach the bucket.
+
+```sh
+kubectl -n typo3 exec deploy/typo3-backend -- printenv | grep TYPO3_S3_ | sed 's/\(SECRET=\).*/\1…/'
+kubectl -n typo3 get pod garage-0
+kubectl -n typo3 exec garage-0 -- /garage bucket info media
+```
+
+| Symptom | Cause |
+|---|---|
+| `TYPO3_S3_KEY` / `TYPO3_S3_SECRET` missing | `typo3-env` from before Garage: run `./k8s/deploy.sh`, it adds them |
+| storage still offline after the variables are there | the frontend/backend pods started before the change: `kubectl -n typo3 rollout restart deploy/typo3-backend deploy/typo3-frontend` |
+| timeouts to `garage:3900` | the NetworkPolicy `typo3-to-garage` is missing: `kubectl -n typo3 get networkpolicy` |
+| images in the page don't load (404) | `/media/` route or website mode: `kubectl -n typo3 get httproute media`, `… /garage bucket website --allow media` |

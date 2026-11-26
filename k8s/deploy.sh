@@ -5,7 +5,7 @@
 # 1. builds the production image (docker/Dockerfile) and pushes it to the
 #    cluster registry; the release uses its digest
 # 2. creates the namespace and, once, the Secrets with random passwords
-# 3. applies k8s/platform/ (MariaDB, Valkey, RWX volumes) and waits for it
+# 3. applies k8s/platform/ (MariaDB, Valkey, Garage S3, RWX volumes) and waits for it
 # 4. empty database only: `typo3 setup` in a one-off pod (schema + admin user),
 #    then the root page and sample pages (k8s/bootstrap.sql). The chart's
 #    migrations hook can't do this: extension:setup needs be_users to exist.
@@ -102,6 +102,23 @@ if ! k get secret typo3-env >/dev/null 2>&1; then
     --from-literal=password="$(openssl rand -base64 18 | tr -d '/+=')A1." >/dev/null
 fi
 
+# Garage (S3): created separately, so clusters from before Garage get it too.
+if ! k get secret typo3-garage >/dev/null 2>&1; then
+  echo "Creating the Garage Secret"
+  k create secret generic typo3-garage \
+    --from-literal=rpc-secret="$(openssl rand -hex 32)" \
+    --from-literal=admin-token="$(openssl rand -base64 32)" \
+    --from-literal=access-key="GK$(openssl rand -hex 12)" \
+    --from-literal=secret-key="$(openssl rand -hex 32)" >/dev/null
+fi
+if [ -z "$(k get secret typo3-env -o jsonpath='{.data.TYPO3_S3_KEY}')" ]; then
+  echo "Adding the S3 credentials to typo3-env"
+  k patch secret typo3-env --type merge -p "$(jq -n \
+    --arg key "$(secret_value typo3-garage access-key)" \
+    --arg secret "$(secret_value typo3-garage secret-key)" \
+    '{stringData: {TYPO3_S3_KEY: $key, TYPO3_S3_SECRET: $secret}}')" >/dev/null
+fi
+
 # --- 3. platform ----------------------------------------------------------------
 step "MariaDB, Valkey, volumes"
 k apply -f "${ROOT}/k8s/platform/"
@@ -109,6 +126,9 @@ k wait mariadb/typo3-mariadb --for=condition=Ready --timeout=10m
 k wait database/typo3 user/typo3 grant/typo3 --for=condition=Ready --timeout=5m
 k rollout status statefulset/typo3-valkey --timeout=5m
 k rollout status deployment/typo3-valkey-cache --timeout=5m
+k rollout status statefulset/garage --timeout=5m
+# The default bucket exists; serving it anonymously is a separate switch.
+k exec garage-0 -- /garage bucket website --allow media >/dev/null
 k wait pvc/typo3-fileadmin pvc/typo3-typo3temp-assets --for=jsonpath='{.status.phase}'=Bound --timeout=5m
 
 # --- 4. first install ---------------------------------------------------------------

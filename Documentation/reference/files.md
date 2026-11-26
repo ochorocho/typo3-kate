@@ -51,7 +51,7 @@ k8s/                           everything that runs on the cluster
 ├── deploy.sh                  build, push, deploy
 ├── charts/typo3/              Helm chart (unchanged from upstream)
 ├── values/cluster.yaml        values for this cluster
-├── platform/                  MariaDB, Valkey, RWX volumes for namespace typo3
+├── platform/                  MariaDB, Valkey, Garage (S3), RWX volumes for namespace typo3
 └── bootstrap.sql              first pages for an empty database
 LICENSE-typo3-k8s-starter      MIT license of the upstream project
 .github/workflows/ci.yml       lint (PHP, shell, Helm, kubeconform), OpenTofu, image + smoke test

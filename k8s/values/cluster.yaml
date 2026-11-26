@@ -9,6 +9,15 @@ typo3:
   existingSecret: typo3-env           # created once by k8s/deploy.sh, never by Helm
   logLevel: notice
   mailFrom: noreply@typo3-kate.local
+  # S3 storage 2 on Garage in the cluster (k8s/platform/garage.yaml); key and
+  # secret come from typo3-env. Files are served by the Gateway under /media/.
+  extraEnv:
+    TYPO3_S3_BUCKET: media
+    TYPO3_S3_PREFIX: typo3
+    TYPO3_S3_REGION: garage
+    TYPO3_S3_ENDPOINT: http://garage:3900
+    TYPO3_S3_PATH_STYLE: "true"
+    TYPO3_S3_PUBLIC_URL: https://kate.ochorocho.dev/media/typo3/
 
 database:
   host: typo3-mariadb                 # single instance: the operator's plain Service

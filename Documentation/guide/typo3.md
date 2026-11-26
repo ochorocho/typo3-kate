@@ -67,8 +67,21 @@ kubectl -n typo3 get pods -o wide
 | `typo3-mariadb-0` | 1 | MariaDB 11.8 via mariadb-operator |
 | `typo3-valkey-0` | 1 | sessions and locks (persistent) |
 | `typo3-valkey-cache` | 1 | TYPO3 caches (in memory only) |
+| `garage-0` | 1 | S3 for storage 2 "Media (S3)" (Garage) |
 
 Files in `fileadmin/` and `typo3temp/assets/` are on NFS volumes that all pods share.
+
+## S3 storage ("Media (S3)")
+
+Storage 2 in `config/system/file-storages.yaml` uses the S3 driver (b13/typo3-s3-driver) with **Garage** in the cluster, as Benni's starter does in DDEV. TYPO3 writes over the S3 API (`http://garage:3900`, bucket `media`, prefix `typo3`). Browsers load the files anonymously from `https://kate.ochorocho.dev/media/typo3/…`: the Gateway sends `/media/` to Garage's web endpoint.
+
+The access key is generated once by `k8s/deploy.sh` (Secret `typo3-garage`) and also written to `typo3-env` as `TYPO3_S3_KEY` / `TYPO3_S3_SECRET`. Garage sets up its layout, the bucket and the key by itself (`--single-node --default-bucket`).
+
+```sh
+kubectl -n typo3 exec garage-0 -- /garage bucket info media    # size, objects, keys
+```
+
+Garage runs as a single node on one local-path volume: no replication, and the data is gone with the VM disk. Back up the bucket, or move to a managed S3, before relying on it.
 
 ## Update the site
 

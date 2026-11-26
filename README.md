@@ -6,7 +6,7 @@
 A 3-node Kubernetes cluster on your own machine, running TYPO3 v15.
 
 - **`infra/`**: OpenTofu creates three Ubuntu VMs on libvirt (1 master, 2 workers) and installs k3s, the Headlamp dashboard, an image registry, shared NFS storage, Gateway API routing and the MariaDB operator. Works on an Apple Silicon Mac (QEMU + Hypervisor.framework) and on an Odroid H2 (KVM).
-- **TYPO3:** the production image, Helm chart and configuration from [Benni Mack's typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter), deployed with MariaDB, Valkey and shared storage inside the cluster.
+- **TYPO3:** the production image, Helm chart and configuration from [Benni Mack's typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter), deployed with MariaDB, Valkey, S3 (Garage) and shared storage inside the cluster.
 
 📖 **Documentation:** https://ochorocho.github.io/typo3-kate/
 
@@ -92,7 +92,7 @@ k8s/                   everything that runs on the cluster
 ├── deploy.sh          build, push and deploy TYPO3
 ├── charts/typo3/      Helm chart (from typo3-k8s-starter)
 ├── values/cluster.yaml  Helm values for this cluster
-├── platform/          MariaDB, Valkey and volumes for the typo3 namespace
+├── platform/          MariaDB, Valkey, Garage (S3) and volumes for the typo3 namespace
 └── bootstrap.sql      first pages for an empty database
 docker/                production image (FrankenPHP, PHP 8.5)
 config/, packages/     TYPO3 project: configuration from env vars, health checks, site package

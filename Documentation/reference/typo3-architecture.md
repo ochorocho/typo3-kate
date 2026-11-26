@@ -18,6 +18,7 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `k8s/platform/mariadb.yaml` | from `examples/mariadb`: 1 replica instead of 3, 1 GiB, local-path storage, no metrics |
 | `k8s/platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
 | `k8s/platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
+| `k8s/platform/garage.yaml` | new: Garage v2.6 single node for storage 2, a NetworkPolicy that lets TYPO3 reach it (the chart's own policy doesn't), and the `/media/` route |
 | `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, certificate from the cluster CA instead of cert-manager |
 | `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes |
 
@@ -38,6 +39,7 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
  typo3 pods ──▶ typo3-mariadb (mariadb-operator)
             ──▶ typo3-valkey (sessions, locks) / typo3-valkey-cache (caches)
             ──▶ NFS on the master (fileadmin, typo3temp/assets)
+            ──▶ garage (S3, storage 2) ◀──/media/── browser
 ```
 
 | Component | Installed by | Notes |
@@ -71,6 +73,7 @@ Created once by the deploy script, never stored in git or Helm:
 | `typo3-mariadb` | `root-password`, `typo3-password` |
 | `typo3-valkey` | `password` |
 | `typo3-admin` | `username`, `password` of the backend admin |
+| `typo3-garage` | Garage RPC secret, admin token, S3 access key and secret (the key pair is also in `typo3-env`) |
 
 ## Resource budget
 
@@ -90,5 +93,4 @@ Headlamp, the operator and the platform components come on top, so there is room
 
 - **Public certificates:** the Gateway uses the cluster's own CA. For a public hostname, cert-manager with Let's Encrypt (as in Benni's example) would replace it.
 - **Backups:** `examples/mariadb/02-backups.yaml` (mariadb-operator Backup CR) isn't applied.
-- **S3 storage 2:** stays offline until `TYPO3_S3_*` is set, for example with Garage in the cluster.
-- **High availability:** MariaDB and Valkey run as single instances.
+- **High availability:** MariaDB, Valkey and Garage run as single instances.
