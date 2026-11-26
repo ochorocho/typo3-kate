@@ -19,7 +19,7 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
 | `platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
 | `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, HTTP only |
-| `values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes |
+| `values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes; HTTPS detection off while the Gateway is HTTP only |
 
 | New | Why |
 |---|---|
@@ -87,7 +87,7 @@ Headlamp, the operator and the platform components come on top, so there is room
 
 ## Not done yet
 
-- **TLS:** the Gateway listens on HTTP only. Next step: cert-manager plus a `https` listener, as in Benni's example.
+- **TLS:** the Gateway listens on HTTP only, so `values/cluster.yaml` sets `TYPO3_REVERSE_PROXY_SSL: "none"` (otherwise TYPO3 redirects to `https://`). Next step: cert-manager plus a `https` listener, as in Benni's example, then remove that setting.
 - **Backups:** `examples/mariadb/02-backups.yaml` (mariadb-operator Backup CR) isn't applied.
 - **S3 storage 2:** stays offline until `TYPO3_S3_*` is set, for example with Garage in the cluster.
 - **High availability:** MariaDB and Valkey run as single instances.

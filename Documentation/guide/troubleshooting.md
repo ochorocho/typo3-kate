@@ -119,3 +119,15 @@ kubectl -n typo3 logs deploy/typo3-frontend --tail=50
 ```
 
 `/_health/ready` shows which dependency is missing. A pod that fails it gets no traffic.
+
+## TYPO3: backend login ends on `https://…` with "404 page not found"
+
+The Gateway serves HTTP only. Benni's `kubernetes.php` treats every request from the trusted proxy as HTTPS (`reverseProxySSL` falls back to `TYPO3_REVERSE_PROXY_IP`), because in production TLS ends at the gateway. TYPO3 then builds `https://` redirects, and Traefik has no HTTPS route, so it answers with its own 404.
+
+`values/cluster.yaml` switches this off with `TYPO3_REVERSE_PROXY_SSL: "none"`. Check that the pods have it:
+
+```sh
+kubectl -n typo3 exec deploy/typo3-backend -- printenv TYPO3_REVERSE_PROXY_SSL   # none
+```
+
+Remove the setting once the Gateway has an HTTPS listener.
