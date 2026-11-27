@@ -239,9 +239,7 @@ fi
 # --- 5. helm ----------------------------------------------------------------------
 step "Helm release ${RELEASE}"
 # Values, last wins: repository defaults, the URLs of the site, your overrides
-SITE_URL="${SITE_URL}" yq -n '
-  .typo3.extraEnv.TYPO3_S3_PUBLIC_URL = strenv(SITE_URL) + "/media/typo3/" |
-  .mercure.publicUrl = strenv(SITE_URL) + "/.well-known/mercure"' > "${WORK_DIR}/site.yaml"
+"${ROOT}/k8s/site-values.sh" "${SITE_URL}" > "${WORK_DIR}/site.yaml"
 if [ -f "${KATE_FILE}" ]; then
   yq '.helm // {}' "${KATE_FILE}" > "${WORK_DIR}/kate.yaml"
 else
