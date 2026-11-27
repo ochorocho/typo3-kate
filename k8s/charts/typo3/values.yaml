@@ -196,9 +196,10 @@ scheduler:
 # Symfony Messenger consumer (async mails, imports, slow APIs). The doctrine
 # transport is a fine start; for more background work, configure a dedicated
 # transport (e.g. Valkey via symfony/redis-messenger, or RabbitMQ) in your
-# Services.yaml and put its name into the command below.
+# Services.yaml and put its name into the command below. Runs by default;
+# set messenger.enabled: false to skip the worker.
 messenger:
-  enabled: false
+  enabled: true
   replicaCount: 1
   command: ["vendor/bin/typo3", "messenger:consume", "doctrine", "--time-limit=3600", "--memory-limit=256M"]
   resources:
