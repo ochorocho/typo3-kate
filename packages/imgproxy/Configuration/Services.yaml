@@ -8,3 +8,13 @@ services:
     resource: '../Classes/*'
     exclude:
       - '../Classes/Configuration/MediaProcessingConfiguration.php'
+      - '../Classes/EventListener/DocumentDimensionsWithoutProvider.php'
+
+  # Replaces EXT:media_processing's listener (same service id, loaded after it):
+  # that one breaks every image processing while no provider is configured
+  SomehowDigital\Typo3\MediaProcessing\EventListener\DocumentDimensionsEventListener:
+    class: Ochorocho\KateImgproxy\EventListener\DocumentDimensionsWithoutProvider
+    tags:
+      - name: event.listener
+        identifier: 'media-processing/document-dimensions'
+        event: TYPO3\CMS\Core\Resource\Event\BeforeFileProcessingEvent

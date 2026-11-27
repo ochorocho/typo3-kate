@@ -183,3 +183,15 @@ $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor_path'] = '/usr/bin/';
 if ($env('TYPO3_KATE_IMAGE_TOOLS', 'imagemagick') === 'none') {
     $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor_enabled'] = false;
 }
+// imgproxy (imgproxy.enabled, packages/imgproxy): configured here, before any
+// ext_localconf.php runs, because EXT:media_processing decides in its own
+// ext_localconf.php whether to register its processor
+if (class_exists(\Ochorocho\KateImgproxy\Configuration\MediaProcessingConfiguration::class)) {
+    $mediaProcessing = \Ochorocho\KateImgproxy\Configuration\MediaProcessingConfiguration::fromEnvironment(getenv(...));
+    if ($mediaProcessing !== null) {
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['media_processing'] = array_replace_recursive(
+            $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['media_processing'] ?? [],
+            $mediaProcessing
+        );
+    }
+}
