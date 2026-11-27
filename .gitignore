@@ -1,4 +1,8 @@
-# Composer
+# Composer, per project (projects/<name>/)
+/projects/*/vendor/
+/projects/*/public/
+/projects/*/var/
+# from before projects/ existed
 /vendor/
 /public/
 /var/

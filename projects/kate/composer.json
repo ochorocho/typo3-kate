@@ -6,6 +6,10 @@
     "repositories": [
         {
             "type": "path",
+            "url": "../../packages/*"
+        },
+        {
+            "type": "path",
             "url": "packages/*"
         }
     ],
@@ -65,7 +69,7 @@
     "prefer-stable": true,
     "autoload-dev": {
         "psr-4": {
-            "Bmack\\K8sHealth\\Tests\\": "packages/k8s-health/Tests/"
+            "Bmack\\K8sHealth\\Tests\\": "../../packages/k8s-health/Tests/"
         }
     }
 }

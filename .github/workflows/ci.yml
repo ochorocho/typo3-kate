@@ -17,9 +17,14 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.5"
-          tools: none
+          tools: composer
       - name: PHP syntax
-        run: find config packages docker -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: find config packages projects docker -name '*.php' -not -path '*/vendor/*' -print0 | xargs -0 -n1 php -l
+      - name: Composer files of every project
+        run: |
+          for project in projects/*/; do
+            composer validate --no-check-publish --no-check-all "${project}composer.json"
+          done
       - name: Shell scripts
         run: shellcheck -x k8s/*.sh infra/scripts/*.sh
       - uses: azure/setup-helm@v4
@@ -63,6 +68,7 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          build-args: PROJECT=kate
           push: false
           load: true
           tags: typo3-kate:ci

@@ -21,3 +21,8 @@ k8s/
 IMPLEMENTATION_PLAN.md
 *.tfstate*
 kubeconfig*
+# typo3-kate: per-project build output (projects/<name>/)
+projects/*/vendor/
+projects/*/public/
+projects/*/var/
+projects/*/config/system/settings.php

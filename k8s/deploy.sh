@@ -90,7 +90,7 @@ else
 
   meta="$(mktemp)"
   docker buildx build --builder "${BUILDER}" --platform "linux/${ARCH}" \
-    -f "${ROOT}/docker/Dockerfile" -t "${REGISTRY}/typo3:${TAG}" \
+    -f "${ROOT}/docker/Dockerfile" --build-arg PROJECT=kate -t "${REGISTRY}/typo3:${TAG}" \
     --push --metadata-file "${meta}" "${ROOT}"
   DIGEST="$(jq -r '."containerimage.digest"' "${meta}")"
   rm -f "${meta}"

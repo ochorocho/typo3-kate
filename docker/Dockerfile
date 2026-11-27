@@ -9,7 +9,7 @@
 #  - read-only root filesystem friendly: only var/, typo3temp/ and Caddy's
 #    data/config dirs need to be writable (mounted as emptyDir by the Helm chart)
 #
-# Build:   docker build -f docker/Dockerfile -t registry.example.com/acme/typo3:1.0.0 .
+# Build:   docker build -f docker/Dockerfile --build-arg PROJECT=kate -t registry.example.com/acme/kate:1.0.0 .
 # Deploy:  always by digest (registry.example.com/acme/typo3@sha256:...)
 
 ARG PHP_VERSION=8.5
@@ -47,13 +47,25 @@ FROM base AS build
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-# Dependencies first for better layer caching
-COPY composer.json composer.lock* ./
+# typo3-kate: one image per site in projects/<PROJECT>/. The repository layout
+# is kept under /src, so the project's path repository ../../packages/*
+# resolves as it does locally; the result becomes /app.
+ARG PROJECT
+WORKDIR /src
 COPY packages/ packages/
+COPY projects/${PROJECT}/ projects/${PROJECT}/
+WORKDIR /src/projects/${PROJECT}
+RUN test -n "${PROJECT}" && test -f composer.json \
+        || { echo "Build with --build-arg PROJECT=<name of a folder in projects/>" >&2; exit 1; } \
+    && test ! -e config/system \
+        || { echo "projects/${PROJECT}/config/system/ is shared: use the repository's config/system/" >&2; exit 1; }
+# Copies instead of symlinks, so vendor/ works without /src/packages
+ENV COMPOSER_MIRROR_PATH_REPOS=1
 RUN composer install --no-dev --no-interaction --no-progress --no-scripts --prefer-dist --no-autoloader
 
-# Then the project itself
-COPY . .
+# Shared by all projects: the cluster glue in config/system and the settings
+COPY config/system/ config/system/
+COPY docker/settings.php docker/prepare-settings.php docker/
 # (the TYPO3 Composer plugins run on dump-autoload and publish extension assets)
 RUN composer dump-autoload --no-dev --optimize --classmap-authoritative \
     # the environment-free settings.php (the DDEV one never enters the build context)
@@ -61,8 +73,10 @@ RUN composer dump-autoload --no-dev --optimize --classmap-authoritative \
     # typo3-kate: bring settings.php up to date, so TYPO3 never writes it at runtime
     && TYPO3_ENCRYPTION_KEY=build-only php docker/prepare-settings.php \
     # nothing environment-specific may end up in the image
-    && rm -rf var/* public/typo3temp/* public/fileadmin/* .git .env* docker/ charts/ \
-    && mkdir -p var public/typo3temp public/fileadmin
+    && rm -rf var/* public/typo3temp/* public/fileadmin/* .env* docker/ \
+    && mkdir -p var public/typo3temp public/fileadmin \
+    && mv /src/projects/${PROJECT} /app.new && rm -rf /app /src && mv /app.new /app
+WORKDIR /app
 
 ############################
 # Stage 3: production       #

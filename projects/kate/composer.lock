@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "81e1059b6dab4c52a7bce908127aa8a2",
+    "content-hash": "3d1113537faf71b3f71e0e58bd57ce68",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -423,7 +423,7 @@
             "version": "dev-main",
             "dist": {
                 "type": "path",
-                "url": "packages/k8s-health",
+                "url": "../../packages/k8s-health",
                 "reference": "9aff6dbab3d68f8dfa424e2791f7a4c06b0d76c0"
             },
             "require": {
@@ -463,7 +463,7 @@
             "version": "dev-main",
             "dist": {
                 "type": "path",
-                "url": "packages/k8s-starter",
+                "url": "../../packages/k8s-starter",
                 "reference": "a1d1f56c4657eb1e6d97106164dac2b8344a5d78"
             },
             "require": {
