@@ -379,3 +379,29 @@ resource "terraform_data" "platform" {
     }
   }
 }
+
+# --- Extra SSH keys --------------------------------------------------------
+
+resource "terraform_data" "authorized_keys" {
+  # Over SSH instead of cloud-init: a user-data change would rebuild the VMs.
+  triggers_replace = {
+    cluster = terraform_data.cluster_ready.id
+    keys    = sha256(join("\n", local.ssh_authorized_keys))
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/scripts/authorized-keys.sh"
+    environment = {
+      NODE_IPS = join(" ", [for n in local.nodes : n.ip])
+      KEYS     = join("\n", local.ssh_authorized_keys)
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = alltrue([for k in local.ssh_authorized_keys :
+      can(regex("^(ssh-|ecdsa-|sk-)[A-Za-z0-9@.-]+ [A-Za-z0-9+/=]+( [ -~]*)?$", k))])
+      error_message = "ssh.authorizedKeys in kate.yaml: each entry must be one public key line, e.g. the contents of ~/.ssh/id_ed25519.pub."
+    }
+  }
+}

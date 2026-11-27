@@ -15,6 +15,14 @@ acme:
   # Alternatively keep it out of this file: export TF_VAR_hetzner_dns_token
   hetznerDnsToken: ""
 
+# More public keys for "ssh ubuntu@<node>", e.g. from your laptop (the
+# contents of ~/.ssh/id_ed25519.pub). The key of the machine running tofu
+# (ssh_public_key_path) is always installed; this list comes on top and can
+# be changed on a running cluster.
+ssh:
+  authorizedKeys: []
+#    - ssh-ed25519 AAAA... you@laptop
+
 # Any value of the Helm chart (k8s/charts/typo3/values.yaml), merged over
 # k8s/values/cluster.yaml. Last one wins, so this overrides everything.
 helm: {}
