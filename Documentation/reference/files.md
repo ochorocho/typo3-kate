@@ -51,7 +51,8 @@ projects/kate/                 the kate site (from bmack/typo3-k8s-starter), nam
 projects/_example/kate.yaml    template for a new site; folders starting with _ are skipped by --all
 config/system/                 shared: configuration from environment variables (a site has none of its own)
 packages/                      shared: k8s-health (health checks), k8s-starter (site package)
-docker/                        production image, built per site (--build-arg PROJECT=<name>);
+docker/                        production image, built per site (--build-arg PROJECT=<name>, PHP_VERSION)
+                               on base.Dockerfile, the runtime published as ghcr.io/ochorocho/typo3-kate-base;
                                prepare-settings.php runs at build time
 kate                           the one script (needs gum): deploy, new, status, remove;
                                values and manifests (a site's Helm values, Gateway,
@@ -64,7 +65,8 @@ k8s/                           everything that runs on the cluster
 └── bootstrap.sql              first pages for an empty database
 kate.example.yaml              template for kate.yaml (git-ignored): ACME token, SSH keys, helm: for every site
 LICENSE-typo3-k8s-starter      MIT license of the upstream project
-.github/workflows/ci.yml       lint (PHP, shell, Helm, kubeconform), OpenTofu, image + smoke test
+.github/workflows/ci.yml       lint (PHP, shell, Helm, kubeconform), OpenTofu, base images + site image + smoke test
+.github/workflows/base-image.yml  publishes the base image for PHP 8.5 and 8.4 (amd64, arm64): on change and weekly
 .github/workflows/docs.yml     builds this documentation, publishes it to GitHub Pages
 ```
 

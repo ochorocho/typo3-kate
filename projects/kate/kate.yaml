@@ -10,4 +10,7 @@ namespace: typo3
 # Also answers on the node IPs (https://<node-ip>/, cluster CA).
 nodeIPs: true
 
+# TYPO3 dev-main (v15) needs PHP 8.5
+php: "8.5"
+
 helm: {}

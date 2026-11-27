@@ -9,35 +9,19 @@
 #  - read-only root filesystem friendly: only var/, typo3temp/ and Caddy's
 #    data/config dirs need to be writable (mounted as emptyDir by the Helm chart)
 #
-# Build:   docker build -f docker/Dockerfile --build-arg PROJECT=kate -t registry.example.com/acme/kate:1.0.0 .
+# Build:   docker build -f docker/Dockerfile --build-arg PROJECT=kate --build-arg PHP_VERSION=8.5 -t registry.example.com/acme/kate:1.0.0 .
 # Deploy:  always by digest (registry.example.com/acme/typo3@sha256:...)
 
+# typo3-kate: the runtime base (FrankenPHP, PHP extensions, GraphicsMagick,
+# php.ini) is prebuilt per PHP version, see docker/base.Dockerfile. BASE_IMAGE
+# points elsewhere for a locally built base.
+ARG BASE_IMAGE=ghcr.io/ochorocho/typo3-kate-base
 ARG PHP_VERSION=8.5
-ARG FRANKENPHP_VERSION=1
 
 ############################
 # Stage 1: runtime base     #
 ############################
-FROM dunglas/frankenphp:${FRANKENPHP_VERSION}-php${PHP_VERSION}-bookworm AS base
-
-# PHP extensions TYPO3 needs (+ redis for Valkey caches/sessions/locks)
-RUN install-php-extensions \
-        intl \
-        gd \
-        mysqli \
-        pdo_mysql \
-        zip \
-        exif \
-        opcache \
-        redis \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends graphicsmagick ghostscript libcap2-bin \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY docker/php/zz-typo3.ini "$PHP_INI_DIR/conf.d/zz-typo3.ini"
-RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
-
-WORKDIR /app
+FROM ${BASE_IMAGE}:${PHP_VERSION} AS base
 
 ############################
 # Stage 2: build            #

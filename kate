@@ -6,7 +6,7 @@
 #   ./kate                                   menu
 #   ./kate deploy [<site>|--all] [--no-build]   (--all and the menu leave out kate)
 #   ./kate new [<site>] [--domain <domain>] [--acme staging|production]
-#              [--namespace <ns>] [--node-ips] [--from <site>]
+#              [--namespace <ns>] [--php 8.5|8.4] [--node-ips] [--from <site>]
 #   ./kate status
 #   ./kate remove [<site>] [--yes] [--delete-volumes]
 #   ./kate password [<site>] [--copy]          backend login of a site
@@ -27,6 +27,10 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 RELEASE="${RELEASE:-typo3}"
 BUILDER=typo3-kate
 KATE_FILE="${ROOT}/kate.yaml"
+# PHP versions with a prebuilt base image (docker/base.Dockerfile,
+# .github/workflows/base-image.yml); the first is the default
+PHP_VERSIONS="8.5 8.4"
+BASE_IMAGE="${BASE_IMAGE:-ghcr.io/ochorocho/typo3-kate-base}"
 
 # --- ui ------------------------------------------------------------------------
 # Messages go to stderr, so `values` and `manifests` print only YAML.
@@ -104,7 +108,13 @@ load_project() {
     || fail "admin.username in projects/${PROJECT}/kate.yaml: letters, digits and . _ @ - only, at most 50"
   [[ "${ADMIN_EMAIL}" =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] \
     || fail "admin.email in projects/${PROJECT}/kate.yaml is not an email address"
+  # PHP version: one with a prebuilt base image
+  PHP_VERSION="$(setting ".php // \"${PHP_VERSIONS%% *}\"" "${PHP_VERSIONS%% *}")"
+  php_supported "${PHP_VERSION}" \
+    || fail "php: ${PHP_VERSION} in projects/${PROJECT}/kate.yaml: one of ${PHP_VERSIONS} (those have a base image)"
 }
+
+php_supported() { [[ " ${PHP_VERSIONS} " == *" $1 "* ]]; }
 
 # --- cluster -----------------------------------------------------------------------
 # connect: KUBECONFIG, REGISTRY, MASTER_IP and WORK_DIR (removed on exit,
@@ -334,7 +344,8 @@ cmd_deploy() {
       "Site:      ${PROJECT}" "Namespace: ${NAMESPACE}" \
       "Domain:    ${DOMAIN:-(none, node IPs)}" \
       "Let's Encrypt: $(if [ -n "$(wildcard_for "${DOMAIN}")" ]; then echo "*.${WILDCARD_DOMAIN} (${WILDCARD_ENVIRONMENT}, ${WILDCARD_PROVIDER:-$(dns_default)})"; elif [ -n "${DOMAIN}" ]; then echo "${ACME_ENVIRONMENT}, DNS provider ${ACME_PROVIDER:-$(dns_default)}"; else echo "-"; fi)" \
-      "Node IPs:  ${NODE_IPS}" "Image:     $([ "${build}" = true ] && echo "build a new one" || echo "keep the current one")"
+      "Node IPs:  ${NODE_IPS}" "PHP:       ${PHP_VERSION}" \
+      "Image:     $([ "${build}" = true ] && echo "build a new one" || echo "keep the current one")"
     gum confirm "Deploy?" || fail "cancelled"
   fi
 
@@ -384,7 +395,8 @@ cmd_deploy() {
     fi
     meta="${WORK_DIR}/build-meta.json"
     docker buildx build --builder "${BUILDER}" --platform "linux/${arch}" \
-      -f "${ROOT}/docker/Dockerfile" --build-arg PROJECT="${PROJECT}" -t "${image}:${tag}" \
+      -f "${ROOT}/docker/Dockerfile" --build-arg PROJECT="${PROJECT}" \
+      --build-arg PHP_VERSION="${PHP_VERSION}" --build-arg BASE_IMAGE="${BASE_IMAGE}" -t "${image}:${tag}" \
       --push --metadata-file "${meta}" "${ROOT}"
     digest="$(jq -r '."containerimage.digest"' "${meta}")"
     [[ "${digest}" == sha256:* ]] || fail "no image digest in the build output"
@@ -1001,8 +1013,8 @@ cmd_wait_certificate() {
 
 # --- new: create a site in projects/<site>/ ------------------------------------------
 cmd_new() {
-  local name="" domain="" domain_set=false acme="" namespace="" node_ips=false from=""
-  local usage="Usage: ./kate new [<site>] [--domain <domain>] [--acme staging|production] [--namespace <ns>] [--node-ips] [--from <site>]"
+  local name="" domain="" domain_set=false acme="" namespace="" node_ips=false from="" php=""
+  local usage="Usage: ./kate new [<site>] [--domain <domain>] [--acme staging|production] [--namespace <ns>] [--php <version>] [--node-ips] [--from <site>]"
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain) [ $# -ge 2 ] || fail "${usage}"; domain="$2"; domain_set=true; shift 2 ;;
@@ -1010,6 +1022,7 @@ cmd_new() {
       --namespace) [ $# -ge 2 ] || fail "${usage}"; namespace="$2"; shift 2 ;;
       --node-ips) node_ips=true; shift ;;
       --from) [ $# -ge 2 ] || fail "${usage}"; from="$2"; shift 2 ;;
+      --php) [ $# -ge 2 ] || fail "${usage}"; php="$2"; shift 2 ;;
       -*) fail "${usage}" ;;
       *) [ -z "${name}" ] || fail "${usage}"; name="$1"; shift ;;
     esac
@@ -1058,6 +1071,15 @@ cmd_new() {
     fi
   fi
   valid_name "${namespace}" || fail "namespace '${namespace}': lowercase letters, digits and dashes only"
+  if [ -z "${php}" ]; then
+    if interactive; then
+      # shellcheck disable=SC2086 # one version per word
+      php="$(gum choose --header "PHP version" --selected "${PHP_VERSIONS%% *}" ${PHP_VERSIONS})"
+    else
+      php="${PHP_VERSIONS%% *}"
+    fi
+  fi
+  php_supported "${php}" || fail "--php: one of ${PHP_VERSIONS}"
 
   local dir="${ROOT}/projects/${name}"
   mkdir -p "${dir}/config"
@@ -1068,6 +1090,7 @@ cmd_new() {
   DOMAIN="${domain}" ACME="${acme}" yq -i '.domain = strenv(DOMAIN) | .acme.environment = strenv(ACME)' "${dir}/kate.yaml"
   [ "${namespace}" = "${name}" ] || NS="${namespace}" yq -i '.namespace = strenv(NS)' "${dir}/kate.yaml"
   [ "${node_ips}" = false ] || yq -i '.nodeIPs = true' "${dir}/kate.yaml"
+  PHP="${php}" yq -i '.php = strenv(PHP)' "${dir}/kate.yaml"
 
   step "Created projects/${name}"
   note "From projects/${from}: composer.json, composer.lock, config/sites/. Settings: projects/${name}/kate.yaml"
@@ -1386,13 +1409,14 @@ _kate() {
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
+      new:--php) words="8.5 8.4" ;;
       new:--from) words="${sites}" ;;
       manifests:--issuer) words="letsencrypt letsencrypt-staging" ;;
       new:--domain | new:--namespace | values:--hostname | manifests:--hostname | logs:--since | logs:--tail | dns:--ip | dns:--ttl) COMPREPLY=(); return ;;
       *)
         case "${cmd}" in
           deploy) words="${deployable} --all --no-build" ;;
-          new) words="--domain --acme --namespace --node-ips --from" ;;
+          new) words="--domain --acme --namespace --php --node-ips --from" ;;
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
           dns) words="--ip --ttl --yes" ;;
@@ -1442,13 +1466,14 @@ _kate() {
   fi
   case "${cmd}:${prev}" in
     new:--acme) compadd staging production; return ;;
+    new:--php) compadd 8.5 8.4; return ;;
     new:--from) compadd -a sites; return ;;
     manifests:--issuer) compadd letsencrypt letsencrypt-staging; return ;;
     new:--domain|new:--namespace|values:--hostname|manifests:--hostname|logs:--since|logs:--tail|dns:--ip|dns:--ttl) _message 'value'; return ;;
   esac
   case "${cmd}" in
     deploy) compadd -- ${sites:#kate}; compadd -- --all --no-build ;;
-    new) compadd -- --domain --acme --namespace --node-ips --from ;;
+    new) compadd -- --domain --acme --namespace --php --node-ips --from ;;
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
     dns) compadd -- --ip --ttl --yes ;;

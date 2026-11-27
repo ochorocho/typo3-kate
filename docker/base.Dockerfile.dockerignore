@@ -1,0 +1,3 @@
+# typo3-kate: the base image only needs the PHP settings
+**
+!docker/php/

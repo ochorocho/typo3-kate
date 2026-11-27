@@ -54,6 +54,7 @@ Shared by all sites, in the repository root: `packages/` (`k8s-health`, `k8s-sta
 | `acme.environment` | `staging` | `staging` (untrusted test certificates) or `production` |
 | `namespace` | the folder name | Kubernetes namespace of the site |
 | `nodeIPs` | `false` | also answer on `https://<node-ip>/` with the cluster CA. Only one site can |
+| `php` | `8.5` | PHP version, `8.5` or `8.4` (those have a [prebuilt base image](#the-image)); the site's composer packages must allow it |
 | `admin.username` | `admin` | backend user that the first install creates; changing it later has no effect on an installed site |
 | `admin.email` | `admin@typo3-kate.local` | that user's email address |
 | `helm` | `{}` | Helm values of this site, applied last |
@@ -105,7 +106,7 @@ Requirements: a cluster from `infra/` (`tofu apply`), plus [`gum`](https://githu
 The script:
 
 1. refuses to start when the namespace belongs to another site, when the domain is already another site's, or when a second site would answer on the node IPs (a site without a domain always does)
-2. builds `docker/Dockerfile` with `--build-arg PROJECT=<name>` for the nodes' architecture and pushes it to the cluster registry as `<master-ip>:30500/<name>`. The release then uses the image's **digest**, not a tag.
+2. builds `docker/Dockerfile` with `--build-arg PROJECT=<name>` and the site's `php` version on the [prebuilt base image](#the-image), for the nodes' architecture, and pushes it to the cluster registry as `<master-ip>:30500/<name>`. The release then uses the image's **digest**, not a tag.
 3. creates the site's namespace and, the first time only, the Secrets with random passwords
 4. with a domain: applies the site's Gateway `site`, Certificate `site` and the `/media/` route (`./kate manifests`) and waits for the certificate
 5. applies `k8s/platform/` (MariaDB, two Valkey instances, Garage, two RWX volumes) and waits until they are ready
@@ -124,6 +125,19 @@ Running it again is safe: Secrets, the database and the pages are left as they a
 ```sh
 ./kate deploy kate --no-build    # re-apply values/chart with the deployed image
 ```
+
+### The image
+
+Every site's image starts from a prebuilt runtime base: FrankenPHP with the PHP extensions TYPO3 needs (intl, gd, mysqli, pdo_mysql, zip, exif, opcache, redis), GraphicsMagick, Ghostscript and the production `php.ini` (`docker/base.Dockerfile`). It is published for PHP 8.5 and 8.4, for amd64 and arm64:
+
+```
+ghcr.io/ochorocho/typo3-kate-base:8.5     ghcr.io/ochorocho/typo3-kate-base:8.4
+ghcr.io/ochorocho/typo3-kate-base:8.5-<yyyymmdd>   (each build, to go back to)
+```
+
+So a deploy only adds the site's composer packages and code; nothing is compiled on the Odroid. The workflow `.github/workflows/base-image.yml` builds it on every change to the base and weekly without cache, for security updates; CI builds and checks both versions first. A site picks its version with `php:` in its `kate.yaml` (default 8.5), and its composer packages must allow it: TYPO3 v15 (`dev-main`, the kate site) needs 8.5, v14 also runs on 8.4.
+
+A base built locally instead (offline, or to try a change): `docker build -f docker/base.Dockerfile --build-arg PHP_VERSION=8.5 -t <registry>/typo3-kate-base:8.5 .`, pushed where your build can pull it, then `BASE_IMAGE=<registry>/typo3-kate-base ./kate deploy <site>`.
 
 ::: tip macOS: kubectl blocked
 If macOS blocks `kubectl` from reaching the VMs (see [Troubleshooting](./troubleshooting#no-route-to-host-from-kubectl-or-the-browser-while-ssh-and-ping-work)), the script switches to an SSH tunnel to the master by itself, on the first free local port from 16443 to 16463, so several deploys can run at the same time.

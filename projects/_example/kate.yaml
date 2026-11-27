@@ -20,6 +20,10 @@ acme:
 # Also answer on the node IPs (https://<node-ip>/, cluster CA). One project only.
 # nodeIPs: false
 
+# PHP version: one with a prebuilt base image (ghcr.io/ochorocho/typo3-kate-base),
+# 8.5 (default) or 8.4. The site's composer packages must allow it.
+# php: "8.5"
+
 # The backend admin the first install creates (./kate password <name> shows
 # the login). Changing it later has no effect on an installed site.
 # admin:
