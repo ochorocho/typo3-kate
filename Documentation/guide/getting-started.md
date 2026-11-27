@@ -20,17 +20,22 @@ Follow the page for your machine once:
 
 ## Your settings
 
-What is yours and not the repository's (the domain, the Hetzner DNS token, Let's Encrypt, any Helm value you want different) goes into one file, `kate.yaml` in the repository root. Git ignores it.
+Settings live in two places:
+
+- **`kate.yaml` in the repository root**: what is yours and cluster-wide (the Hetzner DNS token, the Let's Encrypt contact, extra SSH keys, Helm values for every site). Git ignores it.
+- **`projects/<name>/kate.yaml`**: one per site, committed, no secrets: its domain, the Let's Encrypt environment, the namespace and its own Helm values. See [TYPO3 on the cluster](./typo3#sites-in-projects).
 
 ```sh
 cp kate.example.yaml kate.yaml && chmod 600 kate.yaml
 ```
 
-| Section | Read by | |
+| Section of `kate.yaml` | Read by | |
 |---|---|---|
-| `domain`, `acme` | OpenTofu (`infra/`) | certificate on the Gateway; win over the `*.tfvars` and `TF_VAR_*` |
-| `domain` | `k8s/deploy.sh` | media and Mercure URLs; without it they use the master IP |
-| `helm` | `k8s/deploy.sh` | any value of `k8s/charts/typo3`, applied after `k8s/values/cluster.yaml` |
+| `acme` (`email`, `hetznerDnsToken`) | OpenTofu (`infra/`) | Let's Encrypt issuers for every site's certificate; win over the `*.tfvars` and `TF_VAR_*` |
+| `ssh.authorizedKeys` | OpenTofu (`infra/`) | more public keys for `ssh ubuntu@<node>` |
+| `helm` | `k8s/deploy.sh` | any value of `k8s/charts/typo3`, for every site, applied after `k8s/values/cluster.yaml` |
+
+`domain` and `acme.environment` in the root `kate.yaml` are ignored now (`tofu` warns): each site sets them in its own `projects/<name>/kate.yaml`.
 
 Without `kate.yaml` everything runs on IP addresses with the cluster CA. The `*.tfvars` keep describing the host (CPU, RAM, network), `k8s/values/cluster.yaml` the defaults for this cluster.
 
@@ -63,7 +68,7 @@ tofu output dashboard_url                     # http://<master-ip>:30080
 $(tofu output -raw dashboard_token_command)   # paste the token into Headlamp
 ```
 
-More on this in [Dashboard & kubectl](./dashboard).
+More on this in [Dashboard & kubectl](./dashboard). Then deploy a site from the repository root, `k8s/deploy.sh kate`: see [TYPO3 on the cluster](./typo3#deploy).
 
 ## 4. Remove it
 

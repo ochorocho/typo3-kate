@@ -102,7 +102,7 @@ kubectl -n typo3 logs -l app.kubernetes.io/component=migrations --all-containers
 | Message | Cause |
 |---|---|
 | `Table 'typo3.be_users' doesn't exist` | the database is empty: `extension:setup` can't install TYPO3. The deploy script runs `typo3 setup` first when `be_users` is missing. Check that step's output. |
-| `config/system/settings.php is not writable` | `settings.php` in the image is missing something TYPO3 wants to add. `docker/prepare-settings.php` adds it at build time: rebuild with `./k8s/deploy.sh`. See [TYPO3 architecture](../reference/typo3-architecture#why-settings-php-is-prepared-at-build-time). |
+| `config/system/settings.php is not writable` | `settings.php` in the image is missing something TYPO3 wants to add. `docker/prepare-settings.php` adds it at build time: rebuild with `./k8s/deploy.sh kate`. See [TYPO3 architecture](../reference/typo3-architecture#why-settings-php-is-prepared-at-build-time). |
 
 After a failed first install, Helm keeps a failed release. Remove it before you retry:
 
@@ -135,20 +135,22 @@ The issuer must be `k8s cluster CA`. `TRAEFIK DEFAULT CERT` means the `TLSStore`
 
 ## HTTPS: "404 page not found"
 
-Traefik answers this when no route matches. The TYPO3 route attaches only to the Gateway's `https` listener, and `http://` only redirects:
+Traefik answers this when no route matches. A site's routes attach to its own Gateway `site` (its domain) and, for the one site on the node IPs, to the `https` listener of `public-gateway`; `http://` only redirects:
 
 ```sh
+kubectl -n typo3 get gateway site \
+  -o jsonpath='{range .status.listeners[*]}{.name}: {.attachedRoutes} routes{"\n"}{end}'
 kubectl -n gateway-system get gateway public-gateway \
   -o jsonpath='{range .status.listeners[*]}{.name}: {.attachedRoutes} routes{"\n"}{end}'
-kubectl -n typo3 get httproute typo3 -o jsonpath='{.status.parents[*].conditions[*].reason}'
+kubectl -n typo3 get httproute typo3 media -o jsonpath='{range .items[*]}{.metadata.name}: {.status.parents[*].conditions[*].reason}{"\n"}{end}'
 ```
 
-`https: 0 routes` means the namespace lacks the label `gateway-access: public`, which `k8s/deploy.sh` sets.
+`https: 0 routes` on `public-gateway` means the node-IP site's namespace lacks the label `gateway-access: public`, which `k8s/deploy.sh` sets for a site with `nodeIPs: true` or without a domain. No Gateway `site` means the site has no `domain` in its `projects/<name>/kate.yaml`, or wasn't deployed since.
 
 ## Let's Encrypt: certificate not issued
 
 ```sh
-kubectl -n gateway-system describe certificate site | tail -15
+kubectl -n typo3 describe certificate site | tail -15
 kubectl get orders,challenges -A
 kubectl -n cert-manager logs deploy/cert-manager-webhook-hetzner --tail=30
 ```
@@ -157,12 +159,15 @@ kubectl -n cert-manager logs deploy/cert-manager-webhook-hetzner --tail=30
 |---|---|
 | challenge `pending` with an authentication error | wrong token, or one from the old DNS Console. Create a read+write token in the Hetzner Console |
 | `zone not found` | the zone isn't managed in the Hetzner Console, or not in the token's project |
-| `too many failed authorizations` | Let's Encrypt rate limit: wait an hour, test with `acme_environment = "staging"` |
-| browser warns although the certificate is `Ready` | still the staging certificate: switch to `production` |
+| `too many failed authorizations` | Let's Encrypt rate limit: wait an hour, test with `acme.environment: staging` in the site's `kate.yaml` |
+| browser warns although the certificate is `Ready` | still the staging certificate: set `acme.environment: production` in `projects/<name>/kate.yaml` and deploy again |
+| `clusterissuer.cert-manager.io "letsencrypt" not found` | no `acme:` section in the root `kate.yaml` yet: add it and run `tofu apply` in `infra/` |
 
-## `tofu apply`: "acme_domain is set, so TF_VAR_hetzner_dns_token is needed"
+`k8s/deploy.sh` waits up to 10 minutes for the certificate and prints the challenges when it gives up.
 
-On purpose: without the token the run would empty the DNS Secret, and renewals would fail. Fetch it from the cluster and run again:
+## `tofu apply`: "Let's Encrypt is on (acme: in kate.yaml), so the Hetzner DNS token is needed"
+
+On purpose: without the token the run would remove the DNS Secret and the issuers, and no site's certificate would renew. Fetch it from the cluster and run again:
 
 ```sh
 export TF_VAR_hetzner_dns_token="$(ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
@@ -180,10 +185,26 @@ kubectl -n typo3 exec garage-0 -- /garage bucket info media
 
 | Symptom | Cause |
 |---|---|
-| `TYPO3_S3_KEY` / `TYPO3_S3_SECRET` missing | `typo3-env` from before Garage: run `./k8s/deploy.sh`, it adds them |
+| `TYPO3_S3_KEY` / `TYPO3_S3_SECRET` missing | `typo3-env` from before Garage: run `./k8s/deploy.sh kate`, it adds them |
 | storage still offline after the variables are there | the frontend/backend pods started before the change: `kubectl -n typo3 rollout restart deploy/typo3-backend deploy/typo3-frontend` |
 | timeouts to `garage:3900` | the NetworkPolicy `typo3-to-garage` is missing: `kubectl -n typo3 get networkpolicy` |
 | images in the page don't load (404) | `/media/` route or website mode: `kubectl -n typo3 get httproute media`, `… /garage bucket website --allow media` |
+
+## `k8s/deploy.sh` refuses to deploy a site
+
+It checks the other sites before it builds anything:
+
+| Message | Cause |
+|---|---|
+| `namespace … belongs to project …` | two sites use the same `namespace`: set another one in `projects/<name>/kate.yaml` |
+| `… is already the domain of …` | two sites have the same `domain` |
+| `only one project can answer on the node IPs` | another site has `nodeIPs: true` or no domain. Give this one a `domain` |
+
+What a namespace belongs to is in its annotations: `kubectl get namespace typo3 -o jsonpath='{.metadata.annotations}'`.
+
+## `tofu apply`: "domain and acme.environment in kate.yaml are ignored now"
+
+A warning: these settings moved to `projects/<name>/kate.yaml`. Remove them from the root `kate.yaml`. On a cluster that still has the old `https-domain` listener, follow [the migration](./public-access#migrating-from-the-domain-in-infra) first.
 
 ## Raspberry Pi 5: VMs don't start
 

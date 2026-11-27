@@ -20,7 +20,7 @@ Sources: [QEMU virt board](https://www.qemu.org/docs/master/system/arm/virt.html
 
 ## Hardware
 
-- **Pi 5 with 8 GB** or more. 8 GB is tight: 7 GB go to the VMs. With 16 GB, use the Odroid sizes (`4096` / `6144` MB).
+- **Pi 5 with 8 GB** or more. 8 GB is tight: 7 GB go to the VMs, enough for one site at most (it requests about 3.5 GiB; the smaller profile under [several sites](./odroid#several-sites) helps). With 16 GB, use the Odroid sizes (`4096` / `6144` MB).
 - **NVMe SSD** through an M.2 HAT. Three VM disks plus MariaDB and the image build are too much for an SD card.
 - **Active cooling.** Image builds and three VMs keep all four cores busy.
 
@@ -78,7 +78,7 @@ git clone https://github.com/ochorocho/typo3-kate.git ~/typo3-kate
 cd ~/typo3-kate/infra
 tofu init
 tofu apply -var-file=raspberrypi5.tfvars
-cd .. && ./k8s/deploy.sh                    # builds the arm64 TYPO3 image on the Pi
+cd .. && ./k8s/deploy.sh kate               # builds the arm64 TYPO3 image on the Pi
 ```
 
 The first image build compiles PHP extensions on the Pi: allow a while.

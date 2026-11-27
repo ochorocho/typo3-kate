@@ -13,10 +13,10 @@ infra/
 │   │                              registry mirror, NFS export, master manifests
 │   ├── registry.yaml.tftpl        image registry on the master (NodePort 30500)
 │   ├── storage.yaml.tftpl         csi-driver-nfs + StorageClass nfs
-│   ├── gateway.yaml.tftpl         Traefik Gateway API provider, GatewayClass, public-gateway
+│   ├── gateway.yaml.tftpl         Traefik Gateway API provider, GatewayClass, public-gateway (node IPs)
 │   ├── mariadb-operator.yaml.tftpl  mariadb-operator (CRDs + operator)
 │   ├── cert-manager.yaml.tftpl    cert-manager + Hetzner DNS webhook
-│   ├── acme.yaml.tftpl            Let's Encrypt issuers, Certificate, token Secret
+│   ├── acme.yaml.tftpl            Let's Encrypt ClusterIssuers, token Secret
 │   ├── network-config.yaml.tftpl  netplan: static IP on lan0, matched by MAC
 │   ├── dashboard.yaml.tftpl       Headlamp HelmChart + admin ServiceAccount/token
 │   └── domain.xsl.tftpl           libvirt XML patches (aarch64, socket_vmnet)
@@ -42,17 +42,27 @@ Generated, and ignored by git:
 ## TYPO3 (repository root)
 
 ```
-composer.json, composer.lock   TYPO3 v15 project (from bmack/typo3-k8s-starter)
-config/system/                 configuration from environment variables
-config/sites/main/             site configuration (versioned, baked into the image)
-packages/                      k8s-health (health checks), k8s-starter (site package)
-docker/                        production image; prepare-settings.php runs at build time
+projects/<name>/               one site each
+├── kate.yaml                  domain, acme.environment, namespace, nodeIPs, helm: (committed, no secrets)
+├── composer.json, composer.lock  the site's packages; path repository ../../packages/*
+├── config/sites/              site configuration (versioned, baked into the image)
+└── packages/                  optional: packages of this site only
+projects/kate/                 the kate site (from bmack/typo3-k8s-starter), namespace typo3
+projects/_example/kate.yaml    template for a new site; folders starting with _ are skipped by --all
+config/system/                 shared: configuration from environment variables (a site has none of its own)
+packages/                      shared: k8s-health (health checks), k8s-starter (site package)
+docker/                        production image, built per site (--build-arg PROJECT=<name>);
+                               prepare-settings.php runs at build time
 k8s/                           everything that runs on the cluster
-├── deploy.sh                  build, push, deploy
+├── deploy.sh                  build, push, deploy: deploy.sh <name> [--no-build] | --all
+├── remove.sh                  remove a site: release, namespace, released NFS volumes
+├── site-values.sh             Helm values from a site's URL and domain (media, Mercure, routes)
+├── project-manifests.sh       a site's Gateway, Certificate and /media/ route
 ├── charts/typo3/              Helm chart (unchanged from upstream)
 ├── values/cluster.yaml        values for this cluster
-├── platform/                  MariaDB, Valkey, Garage (S3), RWX volumes for namespace typo3
+├── platform/                  MariaDB, Valkey, Garage (S3), RWX volumes, per site namespace
 └── bootstrap.sql              first pages for an empty database
+kate.example.yaml              template for kate.yaml (git-ignored): ACME token, SSH keys, helm: for every site
 LICENSE-typo3-k8s-starter      MIT license of the upstream project
 .github/workflows/ci.yml       lint (PHP, shell, Helm, kubeconform), OpenTofu, image + smoke test
 .github/workflows/docs.yml     builds this documentation, publishes it to GitHub Pages

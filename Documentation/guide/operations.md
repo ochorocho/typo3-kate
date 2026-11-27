@@ -1,6 +1,6 @@
 # Day-to-day operations
 
-All commands run in `infra/`. Replace `macos.tfvars` with `odroid.tfvars` on the Odroid, where `-parallelism=1` isn't needed.
+All commands run in `infra/`, except [Remove a site](#remove-a-site). Replace `macos.tfvars` with `odroid.tfvars` on the Odroid, where `-parallelism=1` isn't needed.
 
 ## Destroy everything
 
@@ -41,7 +41,7 @@ Edit the `.tfvars` file and run `tofu apply` again.
 |---|---|
 | `worker_count` up | new workers are created and join automatically. Existing nodes are rebuilt, because every node's `/etc/hosts` lists all nodes |
 | `master` / `worker` vCPU or RAM | VMs are recreated in place, with the same disks |
-| platform manifests (dashboard, registry, storage, Gateway, certificates, operators) | copied to the master over ssh and applied by k3s. **No rebuild**, takes seconds |
+| platform manifests (dashboard, registry, storage, Gateway, Let's Encrypt issuers, operators) | copied to the master over ssh and applied by k3s. **No rebuild**, takes seconds |
 | anything that ends up in cloud-init (IPs, k3s settings, SSH key, NFS export, registry mirror) | the affected nodes get new disks: **data on them is lost** |
 
 Check `tofu plan` first: look for `must be replaced`. A second `tofu apply` right after the first must report `No changes`.
@@ -83,3 +83,17 @@ ssh ubuntu@<node-ip> 'curl -sfL https://get.k3s.io | INSTALL_K3S_CHANNEL=stable 
 ```
 
 Upgrade the master first. The settings are kept in `/etc/rancher/k3s/config.yaml`.
+
+## Remove a site
+
+From the repository root:
+
+```sh
+k8s/remove.sh shop          # asks you to type the name; --yes skips that
+```
+
+It uninstalls the site's Helm release, deletes its namespace (database, Valkey, Garage, Gateway, certificate, Secrets) and the NFS PersistentVolumes the namespace leaves behind. It only removes a namespace that `k8s/deploy.sh` marked as this site's. Left to you:
+
+- the files on the NFS server: `reclaimPolicy: Retain` keeps them under `/srv/nfs/<pv>` on the master; the script lists the volumes. Delete them by hand once you no longer need `fileadmin`
+- the site's DNS record (and router forwarding, if nothing else uses it)
+- the folder `projects/<name>/`, if the site is gone for good (otherwise `k8s/deploy.sh --all` deploys it again)

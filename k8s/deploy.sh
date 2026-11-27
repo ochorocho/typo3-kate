@@ -77,7 +77,6 @@ NODE_IPS="$(setting '.nodeIPs // false' false)"
 
 RELEASE="${RELEASE:-typo3}"
 BUILDER=typo3-kate
-export KUBECONFIG="${KUBECONFIG:-${ROOT}/infra/kubeconfig}"
 
 k() { kubectl -n "${NAMESPACE}" "$@"; }
 secret_value() { k get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; }
@@ -85,47 +84,13 @@ secret_value() { k get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; }
 for tool in docker kubectl helm jq yq openssl tofu; do
   command -v "${tool}" >/dev/null || fail "${tool} is not installed"
 done
-[ -f "${KUBECONFIG}" ] || fail "no kubeconfig at ${KUBECONFIG} (run tofu apply in infra/)"
-REGISTRY="${REGISTRY:-$(tofu -chdir="${ROOT}/infra" output -raw registry)}"
-MASTER_IP="${REGISTRY%%:*}"
+# shellcheck source=k8s/cluster.sh
+. "${ROOT}/k8s/cluster.sh"
 IMAGE="${REGISTRY}/${PROJECT}"
 
 # Cluster-wide settings (./kate.yaml, git-ignored): Helm values for every project.
 KATE_FILE="${ROOT}/kate.yaml"
 SITE_URL="https://${DOMAIN:-${MASTER_IP}}"
-
-WORK_DIR="$(mktemp -d)"
-TUNNEL_CTL=""
-cleanup() {
-  if [ -n "${TUNNEL_CTL}" ]; then
-    ssh -S "${TUNNEL_CTL}" -O exit "ubuntu@${MASTER_IP}" 2>/dev/null || true
-  fi
-  rm -rf "${WORK_DIR}"
-}
-trap cleanup EXIT
-
-# macOS may block kubectl/helm from the VM subnet (Local Network privacy) while
-# ssh is allowed. Then talk to the API through an SSH tunnel on localhost;
-# the k3s API certificate is valid for 127.0.0.1.
-if ! kubectl get --raw /readyz >/dev/null 2>&1; then
-  echo "API not reachable directly, using an SSH tunnel to ${MASTER_IP}"
-  TUNNEL_DIR="${WORK_DIR}"
-  # The first free local port, so several deploys can run at the same time
-  port=""
-  for candidate in $(seq 16443 16463); do
-    if ssh -f -N -M -S "${TUNNEL_DIR}/ctl" -o ExitOnForwardFailure=yes \
-        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-        -L "127.0.0.1:${candidate}:127.0.0.1:6443" "ubuntu@${MASTER_IP}" 2>/dev/null; then
-      port="${candidate}"
-      break
-    fi
-  done
-  [ -n "${port}" ] || fail "no SSH tunnel to ${MASTER_IP} (ports 16443-16463 busy or ssh refused)"
-  TUNNEL_CTL="${TUNNEL_DIR}/ctl"
-  sed "s#https://${MASTER_IP}:6443#https://127.0.0.1:${port}#" "${KUBECONFIG}" > "${TUNNEL_DIR}/kubeconfig"
-  export KUBECONFIG="${TUNNEL_DIR}/kubeconfig"
-  kubectl get --raw /readyz >/dev/null || fail "cluster not reachable, also not through SSH"
-fi
 
 # --- 0. other projects ------------------------------------------------------
 # Each namespace records its project (annotations typo3-kate/*). A namespace

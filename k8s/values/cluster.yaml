@@ -1,7 +1,7 @@
 # Our 3-node libvirt/k3s cluster (infra/). Based on values/production.yaml of
 # bmack/typo3-k8s-starter; k8s/deploy.sh adds image.repository and image.digest:
 #   helm upgrade --install typo3 k8s/charts/typo3 -n typo3 -f k8s/values/cluster.yaml \
-#     --set image.repository=<master-ip>:30500/typo3 --set image.digest=sha256:...
+#     --set image.repository=<master-ip>:30500/<project> --set image.digest=sha256:...
 
 typo3:
   trustedHostsPattern: ".*"           # the site answers on every node IP
@@ -17,7 +17,7 @@ typo3:
     TYPO3_S3_REGION: garage
     TYPO3_S3_ENDPOINT: http://garage:3900
     TYPO3_S3_PATH_STYLE: "true"
-    # TYPO3_S3_PUBLIC_URL: set by k8s/deploy.sh from the domain in kate.yaml
+    # TYPO3_S3_PUBLIC_URL: set by k8s/site-values.sh from the project's domain
 
 database:
   host: typo3-mariadb                 # single instance: the operator's plain Service
@@ -66,7 +66,7 @@ scheduler:
   schedule: "* * * * *"
 
 # Real-time hub under /.well-known/mercure; JWT keys are in typo3-env and
-# publicUrl comes from the domain in kate.yaml (both by k8s/deploy.sh).
+# publicUrl comes from the project's domain (k8s/site-values.sh).
 mercure:
   enabled: true
 

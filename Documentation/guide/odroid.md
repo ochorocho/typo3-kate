@@ -24,7 +24,37 @@ virsh -c qemu:///system list --all
 
 ## Sizing
 
-The J4105 has 4 cores and takes up to 32 GB RAM. vCPUs are shared between VMs, RAM is not. The defaults use 12 GB for the three VMs, so leave enough for the host.
+The J4105 has 4 cores and takes up to 32 GB RAM. vCPUs are shared between VMs, RAM is not. `odroid.tfvars` uses 16 GB for the three VMs (master 4 GB, two workers with 6 GB each), so leave enough for the host.
+
+### Several sites
+
+The master only runs the control plane, so the sites share the two workers: 12 GB, of which roughly 11 GiB are allocatable, minus Headlamp, Traefik, the operators and cert-manager. One site with the default values requests about **3.5 GiB memory and 1.3 CPU**:
+
+| Workload | CPU | Memory |
+|---|---|---|
+| MariaDB | 500m | 1 GiB |
+| Valkey (sessions, locks) + Valkey (caches) | 150m | 704 MiB |
+| frontend ×2 | 400m | 768 MiB |
+| backend | 100m | 384 MiB |
+| messenger | 50m | 256 MiB |
+| scheduler (CronJob, every minute) | 50m | 256 MiB |
+| Garage | 50m | 128 MiB |
+| Mercure | 20m | 32 MiB |
+| **total** | **1.32 CPU** | **≈ 3.5 GiB** |
+
+That is room for about **3 sites** with the defaults; the HPA's extra frontend pods and the migrations Job during a deploy need headroom too. A smaller profile per site, in its `projects/<name>/kate.yaml` (see `projects/_example/kate.yaml`), saves about 0.4 GiB:
+
+```yaml
+helm:
+  frontend:
+    replicaCount: 1
+    autoscaling:
+      enabled: false
+  mercure:
+    enabled: false
+```
+
+One frontend pod means no redundancy during a node restart, and its PodDisruptionBudget (`minAvailable: 1`) then blocks `kubectl drain` unless you also set `frontend.pdb.enabled: false`. For more sites, raise `worker.memory_mb` or `worker_count`. Pods that don't fit stay `Pending`: `kubectl get pods -A --field-selector=status.phase=Pending`.
 
 ## Choose a network
 

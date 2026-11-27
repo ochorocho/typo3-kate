@@ -3,10 +3,10 @@
 [![ci](https://github.com/ochorocho/typo3-kate/actions/workflows/ci.yml/badge.svg)](https://github.com/ochorocho/typo3-kate/actions/workflows/ci.yml)
 [![docs](https://github.com/ochorocho/typo3-kate/actions/workflows/docs.yml/badge.svg)](https://ochorocho.github.io/typo3-kate/)
 
-A 3-node Kubernetes cluster on your own machine, running TYPO3 v15.
+A 3-node Kubernetes cluster on your own machine, running one or more TYPO3 v15 sites.
 
 - **`infra/`**: OpenTofu creates three Ubuntu VMs on libvirt (1 master, 2 workers) and installs k3s, the Headlamp dashboard, an image registry, shared NFS storage, Gateway API routing and the MariaDB operator. Works on an Apple Silicon Mac (QEMU + Hypervisor.framework) and on an Odroid H2 (KVM); a Raspberry Pi 5 configuration is prepared but not yet tested on hardware.
-- **TYPO3:** the production image, Helm chart and configuration from [Benni Mack's typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter), deployed with MariaDB, Valkey, S3 (Garage) and shared storage inside the cluster.
+- **TYPO3:** the production image, Helm chart and configuration from [Benni Mack's typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter), deployed with MariaDB, Valkey, S3 (Garage) and shared storage inside the cluster. Each site is a folder in `projects/` with its own namespace, image, domain and certificate.
 
 📖 **Documentation:** https://ochorocho.github.io/typo3-kate/
 
@@ -34,7 +34,7 @@ cd ..
 **3. Deploy TYPO3** (about 5 minutes the first time):
 
 ```sh
-./k8s/deploy.sh
+./k8s/deploy.sh kate
 ```
 
 **4. Open it:**
@@ -70,7 +70,7 @@ sudo usermod -aG libvirt,kvm "$USER"      # log out and back in
 # install OpenTofu, Docker, helm and jq
 
 cd infra && tofu init && tofu apply -var-file=odroid.tfvars && cd ..
-./k8s/deploy.sh
+./k8s/deploy.sh kate
 ```
 
 The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach it from other machines, put the VMs on your LAN: see [Odroid H2 host](https://ochorocho.github.io/typo3-kate/guide/odroid).
@@ -82,7 +82,8 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ## Everyday commands
 
 ```sh
-./k8s/deploy.sh                                      # build and roll out a new version
+./k8s/deploy.sh kate                                 # build and roll out a new version of one site
+./k8s/deploy.sh --all                                # every site in projects/
 helm -n typo3 rollback typo3 <revision>              # go back to an earlier release
 kubectl -n typo3 logs deploy/typo3-frontend -f       # logs
 cd infra && tofu destroy -var-file=macos.tfvars -parallelism=1   # remove everything
@@ -91,15 +92,21 @@ cd infra && tofu destroy -var-file=macos.tfvars -parallelism=1   # remove everyt
 ## Layout
 
 ```
+projects/<name>/       one TYPO3 site each: kate.yaml, composer.json/.lock, config/sites/
+├── kate/              the kate site (namespace typo3, kate.ochorocho.dev)
+└── _example/          template for a new site (folders starting with _ are skipped)
 infra/                 OpenTofu: VMs, k3s and the cluster platform
 k8s/                   everything that runs on the cluster
-├── deploy.sh          build, push and deploy TYPO3
+├── deploy.sh          build, push and deploy one site: k8s/deploy.sh <name> | --all
+├── remove.sh          remove one site from the cluster
 ├── charts/typo3/      Helm chart (from typo3-k8s-starter)
 ├── values/cluster.yaml  Helm values for this cluster
-├── platform/          MariaDB, Valkey, Garage (S3) and volumes for the typo3 namespace
+├── platform/          MariaDB, Valkey, Garage (S3) and volumes, per site namespace
 └── bootstrap.sql      first pages for an empty database
-docker/                production image (FrankenPHP, PHP 8.5)
-config/, packages/     TYPO3 project: configuration from env vars, health checks, site package
+docker/                production image (FrankenPHP, PHP 8.5), built per site
+config/system/         shared by all sites: configuration from env vars
+packages/              shared by all sites: health checks, site package
+kate.example.yaml      template for kate.yaml: cluster-wide settings (git-ignored)
 Documentation/         VitePress docs (npm run dev)
 ```
 

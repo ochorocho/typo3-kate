@@ -1,6 +1,6 @@
 # Variables
 
-All variables are defined in `infra/variables.tf`. Set them in `macos.tfvars`, `odroid.tfvars` or with `-var name=value`.
+All variables are defined in `infra/variables.tf`. Set them in `macos.tfvars`, `odroid.tfvars` or with `-var name=value`. Cluster-wide settings in `../kate.yaml` (`acme`, `ssh.authorizedKeys`) win over them; see [your settings](../guide/getting-started#your-settings).
 
 ## Host
 
@@ -50,11 +50,11 @@ Not every combination is allowed: `socket_vmnet` requires `platform = "macos"`, 
 | `registry_node_port` | `30500` | NodePort of the cluster image registry (plain HTTP, on the master) |
 | `registry_size_gb` | `10` | Disk space for the registry |
 | `cert_manager_version` | `"v1.21.3"` | cert-manager Helm chart version |
-| `acme_domain` | `null` | public hostname for a Let's Encrypt certificate, e.g. `kate.ochorocho.dev`. Needs `hetzner_dns_token` on every run |
-| `acme_environment` | `"staging"` | `staging` (untrusted test certificates) or `production` |
-| `acme_email` | `null` | optional contact address for the Let's Encrypt account |
-| `hetzner_dns_token` | `null` (sensitive) | Hetzner Console API token, read+write. Only as `TF_VAR_hetzner_dns_token` |
-| `wait_for_cluster` | `true` | After copying the manifests, wait for the dashboard and the platform (registry, NFS driver, mariadb-operator, cert-manager, certificate, Gateway) |
+| `acme_email` | `null` | optional contact address for the Let's Encrypt account. `acme.email` in `../kate.yaml` wins |
+| `hetzner_dns_token` | `null` (sensitive) | Hetzner Console API token, read+write. Turns on the Let's Encrypt ClusterIssuers for the sites' certificates and is then needed on every run. As `acme.hetznerDnsToken` in `../kate.yaml` or `TF_VAR_hetzner_dns_token`, never in a committed file |
+| `wait_for_cluster` | `true` | After copying the manifests, wait for the dashboard and the platform (registry, NFS driver, mariadb-operator, cert-manager, Let's Encrypt issuers, Gateway) |
+
+`acme_domain` and `acme_environment` are gone: each site sets `domain` and `acme.environment` in `projects/<name>/kate.yaml`, read by `k8s/deploy.sh`.
 
 ## Outputs
 
@@ -64,7 +64,7 @@ Not every combination is allowed: `socket_vmnet` requires `platform = "macos"`, 
 | `ssh` | `{ k8s-master = "ssh ubuntu@192.168.105.200", … }` |
 | `dashboard_url` | `http://192.168.105.200:30080` |
 | `kubeconfig` | `export KUBECONFIG=/…/infra/kubeconfig` |
-| `site_url` | `https://kate.ochorocho.dev/`, or the master IP without `acme_domain` |
+| `site_url` | `https://192.168.105.200/`: the site on the node IPs. Sites with a domain: their `projects/<name>/kate.yaml` |
 | `ca_certificate` | `/…/infra/cluster-ca.crt` |
 | `registry` | `192.168.105.200:30500` |
 | `dashboard_token_command` | `/…/infra/scripts/dashboard-token.sh 192.168.105.200` |

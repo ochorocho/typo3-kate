@@ -1,6 +1,8 @@
 # TYPO3 on the cluster
 
-The cluster runs a TYPO3 v15 site, built and deployed the way [Benni Mack's typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter) does it. The same production image and Helm chart run here, on a real 3-node cluster, with the database and caches inside the cluster.
+The cluster runs TYPO3 v15 sites, built and deployed the way [Benni Mack's typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter) does it. The same production image and Helm chart run here, on a real 3-node cluster, with the database and caches inside the cluster. Each site has its own namespace, image, database and domain; the first one is `kate`.
+
+The commands on this page use `-n typo3`, the namespace of `kate`. For another site use its namespace (by default its folder name).
 
 | What | Where |
 |---|---|
@@ -10,7 +12,7 @@ The cluster runs a TYPO3 v15 site, built and deployed the way [Benni Mack's typo
 
 ## HTTPS
 
-TLS ends at the Gateway, as in Benni's production setup. `tofu apply` creates a private CA for the cluster and a certificate for every node IP and hostname, valid for 397 days. Plain HTTP answers with a redirect to HTTPS.
+TLS ends at the Gateway, as in Benni's production setup. `tofu apply` creates a private CA for the cluster and a certificate for every node IP and hostname, valid for 397 days. Plain HTTP answers with a redirect to HTTPS. Sites with a domain get a Let's Encrypt certificate instead: [Public domain & Let's Encrypt](./public-access).
 
 Trust the CA once, and the browser stops warning:
 
@@ -27,30 +29,90 @@ The admin password is in a Secret:
 kubectl -n typo3 get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d
 ```
 
-## Deploy
+## Sites in `projects/`
 
-Requirements: a cluster from `infra/` (`tofu apply`), plus `docker`, `kubectl`, `helm`, `jq` and `tofu` on your machine.
+Every folder in `projects/` is one site:
+
+```
+projects/<name>/
+├── kate.yaml        settings of the site (committed, no secrets)
+├── composer.json    the site's packages; path repository ../../packages/*
+├── composer.lock
+├── config/sites/    site configuration
+└── packages/        optional: packages of this site only
+```
+
+Shared by all sites, in the repository root: `packages/` (`k8s-health`, `k8s-starter`), `config/system/` (the cluster glue: all configuration from environment variables; a site must not have its own, the image build refuses it), `docker/`, `k8s/` and `infra/`.
+
+`projects/<name>/kate.yaml`:
+
+| Setting | Default | |
+|---|---|---|
+| `domain` | none | public hostname. The site gets its own Gateway and Let's Encrypt certificate for it, see [Public domain & Let's Encrypt](./public-access). Without a domain the site answers on the node IPs |
+| `acme.environment` | `staging` | `staging` (untrusted test certificates) or `production` |
+| `namespace` | the folder name | Kubernetes namespace of the site |
+| `nodeIPs` | `false` | also answer on `https://<node-ip>/` with the cluster CA. Only one site can |
+| `helm` | `{}` | Helm values of this site, applied last |
+
+`projects/kate` is the site from before `projects/` existed: namespace `typo3` (so its database and files stay), `nodeIPs: true`, domain `kate.ochorocho.dev`.
+
+### A new site
 
 ```sh
-./k8s/deploy.sh
+mkdir projects/shop
+cp projects/_example/kate.yaml projects/shop/      # set domain, acme.environment, helm:
+cp projects/kate/composer.json projects/shop/      # or your own, keep the ../../packages/* repository
+cp -r projects/kate/config projects/shop/          # config/sites/ (base "/" works for any host)
+(cd projects/shop && composer update)              # writes composer.lock
+k8s/deploy.sh shop
+```
+
+The domain needs an A record pointing at your public IP and must be in a Hetzner DNS zone the token may edit (see [Public domain & Let's Encrypt](./public-access#another-site)). Folders starting with `_` (like `_example`) are templates and are skipped by `--all`. Check the memory first: [Odroid H2 host](./odroid#several-sites).
+
+### Composer
+
+Composer runs inside the site's folder, locally as in the image build:
+
+```sh
+cd projects/kate
+composer install
+composer update typo3/cms-core
+```
+
+## Deploy
+
+Requirements: a cluster from `infra/` (`tofu apply`), plus `docker`, `kubectl`, `helm`, `jq`, `yq`, `openssl` and `tofu` on your machine.
+
+```sh
+./k8s/deploy.sh kate          # one site
+./k8s/deploy.sh --all         # every site in projects/, one after the other
 ```
 
 The script:
 
-1. builds `docker/Dockerfile` for the nodes' architecture and pushes it to the cluster registry (`<master-ip>:30500`). The release then uses the image's **digest**, not a tag.
-2. creates the namespace `typo3` and, the first time only, the Secrets with random passwords
-3. applies `k8s/platform/` (MariaDB, two Valkey instances, two RWX volumes) and waits until they are ready
-4. **empty database only:** runs `typo3 setup` in a one-off pod (schema and admin user), then imports the root page, About and Contact (`k8s/bootstrap.sql`)
-5. runs `helm upgrade --install` with `k8s/charts/typo3` and `k8s/values/cluster.yaml`. Before the new pods start, the chart's migrations Job runs `extension:setup`, `upgrade:run` and `cache:flush --group pages`.
+1. refuses to start when the namespace belongs to another site, when the domain is already another site's, or when a second site would answer on the node IPs (a site without a domain always does)
+2. builds `docker/Dockerfile` with `--build-arg PROJECT=<name>` for the nodes' architecture and pushes it to the cluster registry as `<master-ip>:30500/<name>`. The release then uses the image's **digest**, not a tag.
+3. creates the site's namespace and, the first time only, the Secrets with random passwords
+4. with a domain: applies the site's Gateway `site`, Certificate `site` and the `/media/` route (`k8s/project-manifests.sh`) and waits for the certificate
+5. applies `k8s/platform/` (MariaDB, two Valkey instances, Garage, two RWX volumes) and waits until they are ready
+6. **empty database only:** runs `typo3 setup` in a one-off pod (schema and admin user), then imports the root page, About and Contact (`k8s/bootstrap.sql`)
+7. runs `helm upgrade --install` (release `typo3` in every namespace) with `k8s/charts/typo3`. Before the new pods start, the chart's migrations Job runs `extension:setup`, `upgrade:run` and `cache:flush --group pages`.
+
+Helm values, the last one wins:
+
+1. `k8s/values/cluster.yaml`
+2. `helm:` in the root `kate.yaml` (every site)
+3. what `k8s/site-values.sh` derives from the domain: media and Mercure URLs, where the HTTPRoute attaches, its hostnames
+4. `helm:` in `projects/<name>/kate.yaml`
 
 Running it again is safe: Secrets, the database and the pages are left as they are, and the new image rolls out without downtime.
 
 ```sh
-./k8s/deploy.sh --no-build    # re-apply values/chart with the deployed image
+./k8s/deploy.sh kate --no-build    # re-apply values/chart with the deployed image
 ```
 
 ::: tip macOS: kubectl blocked
-If macOS blocks `kubectl` from reaching the VMs (see [Troubleshooting](./troubleshooting#no-route-to-host-from-kubectl-or-the-browser-while-ssh-and-ping-work)), the script switches to an SSH tunnel to the master by itself.
+If macOS blocks `kubectl` from reaching the VMs (see [Troubleshooting](./troubleshooting#no-route-to-host-from-kubectl-or-the-browser-while-ssh-and-ping-work)), the script switches to an SSH tunnel to the master by itself, on the first free local port from 16443 to 16463, so several deploys can run at the same time.
 :::
 
 ## What runs
@@ -63,7 +125,7 @@ kubectl -n typo3 get pods -o wide
 |---|---|---|
 | `typo3-frontend` | 2 (HPA 2–4) | website, one pod per worker |
 | `typo3-backend` | 1 | `/typo3` for editors, routed separately |
-| `typo3-scheduler` | CronJob every 15 min | TYPO3 scheduler |
+| `typo3-scheduler` | CronJob every minute | TYPO3 scheduler |
 | `typo3-messenger` | 1 | `messenger:consume doctrine`, async messages |
 | `typo3-mercure` | 1, optional (`mercure.enabled`) | Mercure hub, real-time push under `/.well-known/mercure` |
 | `typo3-mariadb-0` | 1 | MariaDB 11.8 via mariadb-operator |
@@ -89,7 +151,7 @@ Only database and Valkey count for `/_health/ready`: pages work without the work
 
 ### Mercure
 
-[`ochorocho/typo3-mercure`](https://packagist.org/packages/ochorocho/typo3-mercure) connects TYPO3 to the hub. It reads the variables the chart sets (`MERCURE_URL`, `MERCURE_PUBLIC_URL`, the JWT keys, `MERCURE_JWT_ISSUER`). Turn the hub on with `mercure.enabled: true` in `k8s/values/cluster.yaml`, then try it:
+[`ochorocho/typo3-mercure`](https://packagist.org/packages/ochorocho/typo3-mercure) connects TYPO3 to the hub. It reads the variables the chart sets (`MERCURE_URL`, `MERCURE_PUBLIC_URL`, the JWT keys, `MERCURE_JWT_ISSUER`). The hub is on by default (`mercure.enabled: true` in `k8s/values/cluster.yaml`); a site can switch it off with `mercure.enabled: false` in its `helm:`. Try it:
 
 ```sh
 kubectl -n typo3 exec deploy/typo3-backend -- vendor/bin/typo3 mercure:publish https://kate.ochorocho.dev/demo '{"hello":"world"}'
@@ -99,7 +161,7 @@ Usage from PHP and Fluid: [the extension's README](https://github.com/ochorocho/
 
 ## S3 storage ("Media (S3)")
 
-Storage 2 in `config/system/file-storages.yaml` uses the S3 driver (b13/typo3-s3-driver) with **Garage** in the cluster, as Benni's starter does in DDEV. TYPO3 writes over the S3 API (`http://garage:3900`, bucket `media`, prefix `typo3`). Browsers load the files anonymously from `https://kate.ochorocho.dev/media/typo3/…`: the Gateway sends `/media/` to Garage's web endpoint.
+Storage 2 in `config/system/file-storages.yaml` uses the S3 driver (b13/typo3-s3-driver) with **Garage** in the cluster, as Benni's starter does in DDEV. TYPO3 writes over the S3 API (`http://garage:3900`, bucket `media`, prefix `typo3`). Browsers load the files anonymously from `https://kate.ochorocho.dev/media/typo3/…`: the site's HTTPRoute `media` sends `/media/` to Garage's web endpoint. Every site has its own Garage.
 
 The access key is generated once by `k8s/deploy.sh` (Secret `typo3-garage`) and also written to `typo3-env` as `TYPO3_S3_KEY` / `TYPO3_S3_SECRET`. Garage sets up its layout, the bucket and the key by itself (`--single-node --default-bucket`).
 
@@ -132,10 +194,10 @@ Garage runs as a single node on one local-path volume: no replication, and the d
 
 ## Update the site
 
-Change code, templates or `composer.lock`, then deploy:
+Change code, templates or `projects/<name>/composer.lock`, then deploy:
 
 ```sh
-./k8s/deploy.sh
+./k8s/deploy.sh kate
 kubectl -n typo3 rollout status deploy/typo3-frontend
 ```
 
@@ -179,8 +241,7 @@ The frontend scales between 2 and 4 pods with CPU load (`frontend.autoscaling` i
 This deletes the site, the database and all uploaded files:
 
 ```sh
-helm -n typo3 uninstall typo3
-kubectl delete namespace typo3
+k8s/remove.sh kate
 ```
 
-The NFS volumes use `reclaimPolicy: Retain`, so their files stay in `/srv/nfs` on the master until you delete them there. The next `./k8s/deploy.sh` installs a fresh site.
+See [Remove a site](./operations#remove-a-site). The NFS volumes use `reclaimPolicy: Retain`, so their files stay in `/srv/nfs` on the master until you delete them there. The next `./k8s/deploy.sh kate` installs a fresh site.

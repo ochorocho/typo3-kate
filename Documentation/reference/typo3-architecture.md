@@ -10,23 +10,26 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `config/system/additional.php`, `kubernetes.php`, `file-storages.yaml` | all configuration from `TYPO3_*` environment variables |
 | `packages/k8s-health` | `/_health/live` and `/_health/ready` (database + Valkey) |
 | `packages/k8s-starter` | site package (Site Set `bmack/k8s-starter`) |
-| `composer.json`, `composer.lock` | TYPO3 v15 (`dev-main`), b13 S3 driver, stderr logging, distributed locks |
-| `docker/Dockerfile` (one step added), `docker/php/` | FrankenPHP 1 / PHP 8.5 image: UID 1000, port 8080, read-only filesystem |
+| `projects/kate/composer.json`, `composer.lock` | TYPO3 v15 (`dev-main`), b13 S3 driver, stderr logging, distributed locks; moved into `projects/kate/`, path repository `../../packages/*` |
+| `docker/php/` | PHP settings of the image |
 
 | Adapted | Change |
 |---|---|
 | `k8s/platform/mariadb.yaml` | from `examples/mariadb`: 1 replica instead of 3, 1 GiB, local-path storage, no metrics |
 | `k8s/platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
 | `k8s/platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
-| `k8s/platform/garage.yaml` | new: Garage v2.6 single node for storage 2, a NetworkPolicy that lets TYPO3 reach it (the chart's own policy doesn't), and the `/media/` route |
-| `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, certificate from the cluster CA instead of cert-manager |
+| `k8s/platform/garage.yaml` | new: Garage v2.6 single node for storage 2 and a NetworkPolicy that lets TYPO3 reach it (the chart's own policy doesn't). The `/media/` route comes from `k8s/project-manifests.sh` |
+| `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, `public-gateway` for the node IPs with a certificate from the cluster CA. Sites with a domain get their own Gateway and cert-manager certificate |
+| `docker/Dockerfile` | FrankenPHP 1 / PHP 8.5 image (UID 1000, port 8080, read-only filesystem), plus the `prepare-settings.php` step. Built per site with `--build-arg PROJECT=<name>`: keeps the repository layout under `/src` so `../../packages/*` resolves, copies path packages instead of symlinking them, adds the shared `config/system/`, and refuses a site with its own `config/system/` |
 | `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes, Mercure on |
 | `k8s/charts/typo3/` | messenger worker on by default; optional Mercure hub (`mercure.enabled`) with its route under `/.well-known/mercure` and NetworkPolicy |
 
 | New | Why |
 |---|---|
-| `config/sites/main/config.yaml` | In Benni's repo, `ddev setup` creates it. Here it is versioned, so the image contains it. |
-| `k8s/deploy.sh` | the counterpart of his `ddev k8s-deploy`, for a real cluster |
+| `projects/<name>/` | several sites from one repository, each with its own `kate.yaml`, Composer files and namespace |
+| `projects/kate/config/sites/main/config.yaml` | In Benni's repo, `ddev setup` creates it. Here it is versioned, so the image contains it. |
+| `k8s/deploy.sh` | the counterpart of his `ddev k8s-deploy`, for a real cluster, one site at a time |
+| `k8s/site-values.sh`, `k8s/project-manifests.sh` | per site: Helm values from the domain, Gateway `site`, Certificate `site`, `/media/` route |
 | `k8s/bootstrap.sql` | root page and sample pages (his `seed.sql` expects the root page from `typo3 setup`) |
 | `docker/prepare-settings.php` | brings `settings.php` up to date at build time, see below |
 | `packages/k8s-health` (extended) | besides the probes: Valkey, messenger worker (heartbeats in `tx_k8shealth_messenger_worker`) and queue in the backend's System Information menu |
@@ -36,8 +39,9 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 ```
  Mac ──push──▶ registry (master :30500) ◀──pull── nodes (registries.yaml mirror)
 
- browser ──:443──▶ Traefik ──Gateway API──▶ public-gateway ──HTTPRoute──▶ typo3-frontend ×2
-                                                                └─/typo3──▶ typo3-backend
+ browser ──:443──▶ Traefik ──Gateway API──▶ <ns>/site (domain) or public-gateway (node IPs)
+                                            ──HTTPRoute──▶ typo3-frontend ×2
+                                                       └─/typo3──▶ typo3-backend
  typo3 pods ──▶ typo3-mariadb (mariadb-operator)
             ──▶ typo3-valkey (sessions, locks) / typo3-valkey-cache (caches)
             ──▶ NFS on the master (fileadmin, typo3temp/assets)
@@ -48,8 +52,9 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 |---|---|---|
 | Registry | k3s manifest, `registry:3` on the master | plain HTTP. Every node has a containerd mirror for it |
 | RWX storage | `nfs-kernel-server` on the master + `csi-driver-nfs` | StorageClass `nfs`, `reclaimPolicy: Retain` |
-| Gateway API | k3s ships the CRDs; Traefik's provider is switched on | GatewayClass `traefik`, Gateway `gateway-system/public-gateway`: `https` for routes from namespaces labelled `gateway-access: public`, `http` only redirects |
+| Gateway API | k3s ships the CRDs; Traefik's provider is switched on | GatewayClass `traefik`, Gateway `gateway-system/public-gateway`: `https` on the node IPs for routes from the namespace labelled `gateway-access: public`, `http` only redirects. Each site with a domain has its own Gateway `site` (`k8s/deploy.sh`) |
 | TLS | OpenTofu `tls` provider: cluster CA + certificate for all node IPs | Secret `gateway-tls`, also Traefik's default certificate (`TLSStore default`), because browsers send no SNI for IP addresses |
+| Let's Encrypt | cert-manager, Hetzner DNS webhook, ClusterIssuers (while `acme:` is in `kate.yaml`) | each site's Certificate `site` in its namespace; Traefik picks it by SNI |
 | mariadb-operator | HelmCharts `mariadb-operator-crds` + `mariadb-operator` | namespace `mariadb-system` |
 
 ## Why `settings.php` is prepared at build time
@@ -67,7 +72,7 @@ In TYPO3 v15, `extension:setup` authenticates the CLI user first, so it needs `b
 
 ## Secrets
 
-Created once by the deploy script, never stored in git or Helm:
+Created once per site, in its namespace, by the deploy script, never stored in git or Helm:
 
 | Secret | Keys |
 |---|---|
@@ -79,20 +84,23 @@ Created once by the deploy script, never stored in git or Helm:
 
 ## Resource budget
 
-Requests on the two workers (6 GiB each):
+Requests of one site, on the two workers (6 GiB each):
 
 | Workload | CPU | Memory |
 |---|---|---|
 | frontend ×2 | 400m | 768 Mi |
 | backend | 100m | 384 Mi |
+| messenger | 50m | 256 Mi |
+| scheduler (CronJob) | 50m | 256 Mi |
 | MariaDB | 500m | 1 Gi |
 | Valkey + cache | 150m | 704 Mi |
-| **total** | **1.15 CPU** | **≈ 2.9 GiB** |
+| Garage | 50m | 128 Mi |
+| Mercure | 20m | 32 Mi |
+| **total** | **1.32 CPU** | **≈ 3.5 GiB** |
 
-Headlamp, the operator and the platform components come on top, so there is room for the HPA's two extra frontend pods.
+Headlamp, the operators and the platform components come on top. How many sites fit: [Odroid H2 host](../guide/odroid#several-sites).
 
 ## Not done yet
 
-- **Public certificates:** the Gateway uses the cluster's own CA. For a public hostname, cert-manager with Let's Encrypt (as in Benni's example) would replace it.
 - **Backups:** `examples/mariadb/02-backups.yaml` (mariadb-operator Backup CR) isn't applied.
 - **High availability:** MariaDB, Valkey and Garage run as single instances.

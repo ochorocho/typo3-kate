@@ -28,4 +28,4 @@
 **Goal**: projects/_example, removal procedure, capacity note, docs updated.
 **Success Criteria**: a second project deploys on its own domain without touching kate.
 **Tests**: end-to-end on the Odroid (see plan).
-**Status**: Not Started
+**Status**: Complete in code; second site on the Odroid pending

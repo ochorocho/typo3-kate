@@ -78,10 +78,34 @@ They are deliberately **not** part of cloud-init: a change to cloud-init rebuild
 | `dashboard.yaml` | Headlamp (see below) |
 | `registry.yaml` | image registry on the master |
 | `storage.yaml` | csi-driver-nfs, StorageClass `nfs` |
-| `gateway.yaml` | Traefik Gateway API, cluster CA certificate, Gateway, http→https redirect |
+| `gateway.yaml` | Traefik Gateway API, cluster CA certificate, `public-gateway` (http→https redirect, `https` on the node IPs) |
 | `mariadb-operator.yaml` | mariadb-operator |
 | `cert-manager.yaml` | cert-manager, Hetzner DNS webhook |
-| `acme.yaml` | only with `acme_domain`: token Secret, Let's Encrypt issuers, Certificate |
+| `acme.yaml` | only while `acme:` is in `../kate.yaml` (or a token is passed): token Secret, Let's Encrypt ClusterIssuers |
+
+Per-site objects are not here: `k8s/deploy.sh` creates them in each site's namespace (see below).
+
+## Sites and routing
+
+Each folder in `projects/` is one site with its own namespace, image (`<registry>/<name>`) and Helm release `typo3`. All sites share the nodes, the registry, NFS, the operators, cert-manager and Traefik.
+
+```
+browser ──:443──▶ Traefik (websecure, port 8443 in the Gateways)
+                  ├─ SNI kate.example.org ─▶ Gateway <ns>/site (site-tls, Let's Encrypt) ─▶ HTTPRoutes typo3, media of <ns>
+                  ├─ SNI shop.example.org ─▶ Gateway <ns2>/site …
+                  └─ IP address (no SNI) ──▶ gateway-system/public-gateway https (cluster CA) ─▶ routes of the one node-IP site
+browser ──:80───▶ public-gateway http ─▶ redirect to https
+```
+
+| Object | Namespace | Created by |
+|---|---|---|
+| Gateway `public-gateway`, GatewayClass `traefik`, Secret `gateway-tls` | `gateway-system` | `infra/` |
+| ClusterIssuers `letsencrypt`, `letsencrypt-staging`, Secret `hetzner` | cluster / `cert-manager` | `infra/`, while `acme:` is set |
+| Gateway `site`, Certificate `site` (Secret `site-tls`) | the site's | `k8s/project-manifests.sh`, only with a `domain` |
+| HTTPRoute `media` | the site's | `k8s/project-manifests.sh` |
+| HTTPRoute `typo3` | the site's | the chart; `parentRefs`, `hostnames` from `k8s/site-values.sh` |
+
+A site with a domain attaches its routes to its Gateway `site` with that hostname. The node-IP site (`nodeIPs: true`, or no domain) also attaches to `public-gateway`, without a hostname. Its namespace carries the label `gateway-access: public`, and only one site may have it. Each namespace records its site in the annotations `typo3-kate/project` and `typo3-kate/domain`, which `k8s/deploy.sh` checks before it deploys.
 
 ## Dashboard
 

@@ -33,10 +33,14 @@ helm:
       - --memory-limit=256M       # ... or once it uses this much
 #      - --limit=100              # ... or after this many messages
 #      - --sleep=1                # seconds to wait when the queue is empty
-  # A smaller footprint for every site after the first (about 2.5 GiB instead of 3.5)
+  # A smaller footprint for every site after the first: one frontend pod, no
+  # autoscaling, no Mercure (about 0.4 GiB less). Without a second frontend
+  # pod its disruption budget would block `kubectl drain`, so it goes too.
 #  frontend:
 #    replicaCount: 1
 #    autoscaling:
+#      enabled: false
+#    pdb:
 #      enabled: false
 #  mercure:
 #    enabled: false
