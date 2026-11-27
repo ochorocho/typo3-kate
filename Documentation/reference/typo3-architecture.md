@@ -18,7 +18,7 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `k8s/platform/mariadb.yaml` | from `examples/mariadb`: 1 replica instead of 3, 1 GiB, local-path storage, no metrics |
 | `k8s/platform/valkey.yaml` | from `examples/valkey`: cache limited to 256 MB |
 | `k8s/platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
-| `k8s/platform/garage.yaml` | new: Garage v2.6 single node for storage 2 and a NetworkPolicy that lets TYPO3 reach it (the chart's own policy doesn't). The `/media/` route comes from `./kate manifests` |
+| `k8s/platform/garage.yaml` | new: Garage v2.6 single node for storage 2. TYPO3 reaches its S3 API through the chart's own NetworkPolicy (`networkPolicy.extraEgress` in `k8s/values/cluster.yaml`); the `/media/` route comes from `./kate manifests` |
 | `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, `public-gateway` for the node IPs with a certificate from the cluster CA. Sites with a domain get their own Gateway and cert-manager certificate |
 | `docker/Dockerfile` | FrankenPHP 1 / PHP 8.5 image (UID 1000, port 8080, read-only filesystem), plus the `prepare-settings.php` step. Built per site with `--build-arg PROJECT=<name>`: keeps the repository layout under `/src` so `../../packages/*` resolves, copies path packages instead of symlinking them, adds the shared `config/system/`, and refuses a site with its own `config/system/` |
 | `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes, Mercure on |
@@ -36,16 +36,31 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 
 ## Platform (set up by `infra/`)
 
-```
- Mac ──push──▶ registry (master :30500) ◀──pull── nodes (registries.yaml mirror)
+A request, and where the site's data lives:
 
- browser ──:443──▶ Traefik ──Gateway API──▶ <ns>/site (domain) or public-gateway (node IPs)
-                                            ──HTTPRoute──▶ typo3-frontend ×2
-                                                       └─/typo3──▶ typo3-backend
- typo3 pods ──▶ typo3-mariadb (mariadb-operator)
-            ──▶ typo3-valkey (sessions, locks) / typo3-valkey-cache (caches)
-            ──▶ NFS on the master (fileadmin, typo3temp/assets)
-            ──▶ garage (S3, storage 2) ◀──/media/── browser
+```mermaid
+flowchart TB
+  browser(["browser"]) -- ":443" --> traefik["Traefik (Gateway API)"]
+  traefik -- "SNI: the site's domain" --> site["Gateway site<br/>own or wildcard certificate"]
+  traefik -- "node IP, no SNI" --> public["public-gateway<br/>cluster CA"]
+  subgraph ns ["a site's namespace"]
+    site --> routes["HTTPRoutes<br/>typo3, media"]
+    routes -- "/, /typo3" --> typo3["typo3-frontend ×2<br/>typo3-backend"]
+    routes -- "/media/" --> garage[("Garage<br/>S3, storage 2")]
+    typo3 --> mariadb[("MariaDB")]
+    typo3 --> valkey[("Valkey<br/>sessions, caches")]
+    typo3 --> garage
+  end
+  public --> routes
+  typo3 --> nfs[("NFS on the master<br/>fileadmin")]
+```
+
+How an image gets to the nodes:
+
+```mermaid
+flowchart LR
+  deploy(["./kate deploy"]) -- "build, push" --> registry["registry<br/>master :30500"]
+  registry -- "pull, containerd mirror" --> nodes["every node"]
 ```
 
 | Component | Installed by | Notes |
@@ -54,7 +69,7 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | RWX storage | `nfs-kernel-server` on the master + `csi-driver-nfs` | StorageClass `nfs`, `reclaimPolicy: Retain` |
 | Gateway API | k3s ships the CRDs; Traefik's provider is switched on | GatewayClass `traefik`, Gateway `gateway-system/public-gateway`: `https` on the node IPs for routes from the namespace labelled `gateway-access: public`, `http` only redirects. Each site with a domain has its own Gateway `site` (`./kate deploy`) |
 | TLS | OpenTofu `tls` provider: cluster CA + certificate for all node IPs | Secret `gateway-tls`, also Traefik's default certificate (`TLSStore default`), because browsers send no SNI for IP addresses |
-| Let's Encrypt | cert-manager, Hetzner DNS webhook, ClusterIssuers (while `acme:` is in `kate.yaml`) | each site's Certificate `site` in its namespace; Traefik picks it by SNI |
+| Let's Encrypt | cert-manager, the Hetzner DNS webhook, ClusterIssuers with one DNS-01 solver per provider in `acme.providers` (while `acme:` is in `kate.yaml`) | each site's Certificate `site` in its namespace, or the shared wildcard Certificate in `gateway-system` for sites under `acme.wildcard`; Traefik picks it by SNI |
 | mariadb-operator | HelmCharts `mariadb-operator-crds` + `mariadb-operator` | namespace `mariadb-system` |
 
 ## Why `settings.php` is prepared at build time

@@ -2,24 +2,17 @@
 
 ## Overview
 
-```
-                       tofu apply
-                           │
-          ┌────────────────┼────────────────────┐
-          ▼                ▼                    ▼
-   storage pool      cloud-init ISO        libvirt domain
-   base image  ──►   (user-data +    ──►   (VM, hvf or kvm)
-   root disks        network-config)            │
-                                                ▼
-                                   first boot: cloud-init
-                                   ├─ static IP on lan0
-                                   ├─ /etc/hosts, SSH key
-                                   ├─ /etc/rancher/k3s/config.yaml
-                                   └─ install k3s (server | agent)
-                                                │
-                                                ▼
-                                   wait-for-cluster.sh → push-manifests.sh
-                                   └─ writes infra/kubeconfig
+```mermaid
+flowchart TD
+  apply(["tofu apply"])
+  apply --> pool["storage pool<br/>Ubuntu base image, root disks"]
+  apply --> iso["cloud-init ISO per node<br/>user-data, network-config"]
+  pool --> domain["libvirt domain per node<br/>VM on hvf (macOS) or kvm (Linux)"]
+  iso --> domain
+  domain --> boot["first boot: cloud-init<br/>static IP on lan0, /etc/hosts, SSH key,<br/>k3s config, install k3s (server or agent)"]
+  boot --> ready["wait-for-cluster.sh<br/>nodes ready, writes infra/kubeconfig"]
+  ready --> platform["push-manifests.sh<br/>platform manifests to the master,<br/>waits for registry, NFS, cert-manager, Gateway"]
+  ready --> keys["authorized-keys.sh<br/>SSH keys from kate.yaml on every node"]
 ```
 
 ## Resources
@@ -100,7 +93,8 @@ browser ──:80───▶ public-gateway http ─▶ redirect to https
 | Object | Namespace | Created by |
 |---|---|---|
 | Gateway `public-gateway`, GatewayClass `traefik`, Secret `gateway-tls` | `gateway-system` | `infra/` |
-| ClusterIssuers `letsencrypt`, `letsencrypt-staging`, Secret `hetzner` | cluster / `cert-manager` | `infra/`, while `acme:` is set |
+| ClusterIssuers `letsencrypt`, `letsencrypt-staging`, a Secret per DNS provider (`hetzner` or `dns-<name>`) | cluster / `cert-manager` | `infra/`, while `acme:` is set |
+| Certificate `wildcard` (Secret `wildcard-tls`), ReferenceGrant `site-<namespace>` per site | `gateway-system` | `./kate deploy`, with `acme.wildcard` |
 | Gateway `site`, Certificate `site` (Secret `site-tls`) | the site's | `./kate manifests`, only with a `domain` |
 | HTTPRoute `media` | the site's | `./kate manifests` |
 | HTTPRoute `typo3` | the site's | the chart; `parentRefs`, `hostnames` from `./kate values` |

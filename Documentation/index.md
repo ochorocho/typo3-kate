@@ -3,6 +3,9 @@ layout: home
 
 hero:
   name: K8s on libvirt
+  image:
+    src: /logo.svg
+    alt: Three connected cluster nodes, each holding a site
   text: A 3-node Kubernetes cluster in one command
   tagline: OpenTofu builds Ubuntu VMs on KVM (Odroid H2) or macOS, installs k3s and a web dashboard.
   actions:
