@@ -84,7 +84,7 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ```sh
 ./kate                                             # menu: deploy, new, status, remove (needs gum)
 ./kate deploy kate                                 # build and roll out a new version of one site
-./kate deploy --all                                # every site in projects/
+./kate deploy --all                                # every site in projects/ except kate
 ./kate new shop --domain shop.example.com          # a new site from the template
 ./kate status                                      # every site and its state
 ./kate password kate --copy                        # backend password to the clipboard

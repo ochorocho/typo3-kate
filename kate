@@ -4,7 +4,7 @@
 # on the command line; with every argument given it asks nothing.
 #
 #   ./kate                                   menu
-#   ./kate deploy [<site>|--all] [--no-build]
+#   ./kate deploy [<site>|--all] [--no-build]   (--all and the menu leave out kate)
 #   ./kate new [<site>] [--domain <domain>] [--acme staging|production]
 #              [--namespace <ns>] [--node-ips] [--from <site>]
 #   ./kate status
@@ -277,16 +277,21 @@ cmd_deploy() {
   projects="$(list_projects)"
   [ -n "${projects}" ] || fail "no site in projects/ yet: ./kate new"
 
+  # The kate site is neither offered nor part of --all: deploy it by name
+  local others
+  others="$(grep -vx kate <<<"${projects}" || true)"
   if [ "${all}" = false ] && [ -z "${project}" ]; then
+    [ -n "${others}" ] || fail "no site besides kate to choose from: ./kate deploy kate, or create one with ./kate new"
     # shellcheck disable=SC2086 # one site per line
-    project="$(ask_choose "<site> (or --all)" "Deploy which site?" ${projects} "all sites")"
+    project="$(ask_choose "<site> (or --all)" "Deploy which site?" ${others} "all sites")"
     asked=true
     if gum confirm "Build a new image? (No: redeploy the current one)"; then build=true; else build=false; fi
   fi
   if [ "${all}" = true ] || [ "${project}" = "all sites" ]; then
     local flags=() p
     [ "${build}" = true ] || flags+=(--no-build)
-    for p in ${projects}; do
+    [ -n "${others}" ] || fail "no site besides kate for --all: ./kate deploy kate"
+    for p in ${others}; do
       "$0" deploy "${p}" ${flags[@]+"${flags[@]}"}
     done
     return
@@ -828,10 +833,14 @@ completion_bash() {
 # typo3-kate: tab completion for ./kate (written by ./kate autocomplete)
 _kate() {
   local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local cmd="${COMP_WORDS[1]:-}" dir sites="" f words
+  local cmd="${COMP_WORDS[1]:-}" dir sites="" deployable="" f site words
   dir="$(dirname -- "${COMP_WORDS[0]}")"
   for f in "${dir}"/projects/*/composer.json; do
-    [ -e "${f}" ] && sites="${sites} $(basename "$(dirname "${f}")")"
+    [ -e "${f}" ] || continue
+    site="$(basename "$(dirname "${f}")")"
+    sites="${sites} ${site}"
+    # kate is deployed by name only
+    [ "${site}" = kate ] || deployable="${deployable} ${site}"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
     words="deploy new status password remove values manifests autocomplete help"
@@ -843,7 +852,7 @@ _kate() {
       new:--domain | new:--namespace | values:--hostname | manifests:--hostname) COMPREPLY=(); return ;;
       *)
         case "${cmd}" in
-          deploy) words="${sites} --all --no-build" ;;
+          deploy) words="${deployable} --all --no-build" ;;
           new) words="--domain --acme --namespace --node-ips --from" ;;
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
@@ -891,7 +900,7 @@ _kate() {
     new:--domain|new:--namespace|values:--hostname|manifests:--hostname) _message 'value'; return ;;
   esac
   case "${cmd}" in
-    deploy) compadd -a sites; compadd -- --all --no-build ;;
+    deploy) compadd -- ${sites:#kate}; compadd -- --all --no-build ;;
     new) compadd -- --domain --acme --namespace --node-ips --from ;;
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;

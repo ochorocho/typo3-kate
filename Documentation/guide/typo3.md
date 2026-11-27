@@ -85,9 +85,9 @@ Requirements: a cluster from `infra/` (`tofu apply`), plus [`gum`](https://githu
 
 ```sh
 ./kate                      # menu: deploy, new, status, remove
-./kate deploy               # asks which site, whether to build, then shows a summary to confirm
+./kate deploy               # asks which site (kate itself only by name), whether to build, then a summary to confirm
 ./kate deploy kate          # one site, no questions
-./kate deploy --all         # every site in projects/, one after the other
+./kate deploy --all         # every site in projects/ except kate, one after the other
 ./kate status               # every site: namespace, domain, release, certificate, pods
 ./kate password kate        # backend user and password (--copy: to the clipboard)
 ./kate autocomplete         # tab completion for your shell, once
