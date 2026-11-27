@@ -90,7 +90,7 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ./kate password kate --copy                        # backend password to the clipboard
 ./kate autocomplete                                # tab completion for zsh or bash (once)
 helm -n typo3 rollback typo3 <revision>              # go back to an earlier release
-kubectl -n typo3 logs deploy/typo3-frontend -f       # logs
+./kate logs kate frontend -f                         # logs (also: backend, migrations, mariadb, …)
 cd infra && tofu destroy -var-file=macos.tfvars -parallelism=1   # remove everything
 ```
 

@@ -96,7 +96,7 @@ MASTER_IP=<master-ip> EXPECTED_NODES=3 ./scripts/wait-for-cluster.sh
 ## TYPO3: migrations Job fails
 
 ```sh
-kubectl -n typo3 logs -l app.kubernetes.io/component=migrations --all-containers --tail=30
+./kate logs kate migrations --tail 30
 ```
 
 | Message | Cause |
@@ -115,7 +115,7 @@ helm -n typo3 uninstall typo3
 ```sh
 kubectl -n typo3 get pods
 curl --cacert infra/cluster-ca.crt https://<node-ip>/_health/ready          # {"status":"ok","checks":{"database":true,"valkey":true}}
-kubectl -n typo3 logs deploy/typo3-frontend --tail=50
+./kate logs kate frontend --tail 50
 ```
 
 `/_health/ready` shows which dependency is missing. A pod that fails it gets no traffic.

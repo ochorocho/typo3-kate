@@ -10,6 +10,7 @@
 #   ./kate status
 #   ./kate remove [<site>] [--yes] [--delete-volumes]
 #   ./kate password [<site>] [--copy]          backend login of a site
+#   ./kate logs [<site>] [<component>] [-f] [--since 1h] [--tail 100]
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
 #   ./kate autocomplete [bash|zsh] [--print]   tab completion for your shell
@@ -725,6 +726,90 @@ cmd_password() {
   fi
 }
 
+# --- logs: what a site's pods write ------------------------------------------------------
+# log_selector <component>: the label selector of its pods
+log_selector() {
+  case "$1" in
+    typo3) echo "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/name=typo3" ;;
+    frontend | backend | messenger | scheduler | mercure | migrations)
+      echo "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=$1" ;;
+    mariadb) echo "app.kubernetes.io/instance=typo3-mariadb" ;;
+    valkey) echo "app.kubernetes.io/instance=typo3-valkey" ;;
+    valkey-cache) echo "app.kubernetes.io/instance=typo3-valkey-cache" ;;
+    garage) echo "app.kubernetes.io/name=garage" ;;
+    *) return 1 ;;
+  esac
+}
+LOG_COMPONENTS="typo3 frontend backend messenger scheduler mercure migrations mariadb valkey valkey-cache garage"
+
+cmd_logs() {
+  local usage="Usage: ./kate logs [<site>] [<component>] [-f|--follow] [--since <duration>] [--tail <lines>]"
+  local project="" component="" follow=false since="" tail=100
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -f | --follow) follow=true; shift ;;
+      --since) [ $# -ge 2 ] || fail "${usage}"; since="$2"; shift 2 ;;
+      --tail) [ $# -ge 2 ] || fail "${usage}"; tail="$2"; shift 2 ;;
+      -*) fail "${usage}" ;;
+      *)
+        if [ -z "${project}" ]; then project="$1"
+        elif [ -z "${component}" ]; then component="$1"
+        else fail "${usage}"; fi
+        shift ;;
+    esac
+  done
+  [[ "${tail}" =~ ^-?[0-9]+$ ]] || fail "--tail takes a number of lines (-1: all)"
+  if [ -n "${component}" ]; then
+    log_selector "${component}" >/dev/null || fail "unknown component ${component}: one of ${LOG_COMPONENTS}"
+  fi
+  need kubectl jq yq tofu
+  connect
+  if [ -z "${project}" ]; then
+    local deployed
+    deployed="$(deployed_sites)"
+    [ -n "${deployed}" ] || fail "no deployed site found"
+    # shellcheck disable=SC2086 # one site per line
+    project="$(ask_choose "<site>" "Logs of which site?" ${deployed})"
+  fi
+  site_namespace "${project}"
+  if [ -z "${component}" ]; then
+    if interactive; then
+      # shellcheck disable=SC2086 # one component per word
+      component="$(gum choose --header "Which pods? (typo3: all TYPO3 pods)" ${LOG_COMPONENTS})"
+    else
+      component=typo3
+    fi
+  fi
+
+  local selector
+  selector="$(log_selector "${component}")"
+  [ -n "$(kubectl -n "${NAMESPACE}" get pods -l "${selector}" -o name)" ] \
+    || fail "no ${component} pods in ${NAMESPACE} (the scheduler and migrations run only now and then; finished pods are kept for a while)"
+  local since_arg=()
+  [ -z "${since}" ] || since_arg=(--since="${since}")
+  if [ "${follow}" = true ]; then
+    note "${project} (${NAMESPACE}): ${component}, following: Ctrl-C to stop"
+    # --ignore-errors: init containers that haven't started yet don't end it
+    kubectl -n "${NAMESPACE}" logs -l "${selector}" --prefix --all-containers --ignore-errors \
+      --max-log-requests=20 --tail="${tail}" ${since_arg[@]+"${since_arg[@]}"} --follow
+    return
+  fi
+  # One container at a time, only those that have run: a failed migrations
+  # step leaves the next ones waiting, and kubectl logs --all-containers
+  # would stop at the first of them
+  note "${project} (${NAMESPACE}): ${component}"
+  local pod container
+  while read -r pod container; do
+    [ -n "${pod}" ] || continue
+    kubectl -n "${NAMESPACE}" logs "${pod}" -c "${container}" --tail="${tail}" ${since_arg[@]+"${since_arg[@]}"} \
+      | sed "s|^|[pod/${pod}/${container}] |"
+  done < <(kubectl -n "${NAMESPACE}" get pods -l "${selector}" -o json | jq -r '
+    .items | sort_by(.metadata.creationTimestamp)[] | .metadata.name as $pod
+    | ((.status.initContainerStatuses // []) + (.status.containerStatuses // []))[]
+    | select(.state.running or .state.terminated or .lastState.terminated)
+    | "\($pod) \(.name)"')
+}
+
 # --- remove: a site's release, namespace and volumes ---------------------------------
 # The files in projects/<site>/ stay. The NFS volumes (fileadmin, typo3temp
 # assets) have reclaimPolicy Retain, so their data stays on the master unless
@@ -843,19 +928,23 @@ _kate() {
     [ "${site}" = kate ] || deployable="${deployable} ${site}"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
-    words="deploy new status password remove values manifests autocomplete help"
+    words="deploy new status logs password remove values manifests autocomplete help"
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
       new:--from) words="${sites}" ;;
       manifests:--issuer) words="letsencrypt letsencrypt-staging" ;;
-      new:--domain | new:--namespace | values:--hostname | manifests:--hostname) COMPREPLY=(); return ;;
+      new:--domain | new:--namespace | values:--hostname | manifests:--hostname | logs:--since | logs:--tail) COMPREPLY=(); return ;;
       *)
         case "${cmd}" in
           deploy) words="${deployable} --all --no-build" ;;
           new) words="--domain --acme --namespace --node-ips --from" ;;
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
+          logs)
+            # the site first, then the component
+            if [ "${COMP_CWORD}" -eq 2 ]; then words="${sites} -f --since --tail"
+            else words="typo3 frontend backend messenger scheduler mercure migrations mariadb valkey valkey-cache garage -f --since --tail"; fi ;;
           values) words="--hostname --node-ips" ;;
           manifests) words="--hostname --issuer --node-ips" ;;
           autocomplete) words="bash zsh --print" ;;
@@ -884,6 +973,7 @@ _kate() {
       'new:create a site from projects/_example'
       'status:every site and its state'
       'password:backend login of a site'
+      'logs:what the pods of a site write'
       'remove:remove a site from the cluster'
       'values:Helm values of a site (CI)'
       'manifests:Gateway, certificate and media route of a site (CI)'
@@ -897,13 +987,17 @@ _kate() {
     new:--acme) compadd staging production; return ;;
     new:--from) compadd -a sites; return ;;
     manifests:--issuer) compadd letsencrypt letsencrypt-staging; return ;;
-    new:--domain|new:--namespace|values:--hostname|manifests:--hostname) _message 'value'; return ;;
+    new:--domain|new:--namespace|values:--hostname|manifests:--hostname|logs:--since|logs:--tail) _message 'value'; return ;;
   esac
   case "${cmd}" in
     deploy) compadd -- ${sites:#kate}; compadd -- --all --no-build ;;
     new) compadd -- --domain --acme --namespace --node-ips --from ;;
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
+    logs)
+      if (( CURRENT == 3 )); then compadd -a sites
+      else compadd typo3 frontend backend messenger scheduler mercure migrations mariadb valkey valkey-cache garage; fi
+      compadd -- -f --since --tail ;;
     values) compadd -- --hostname --node-ips ;;
     manifests) compadd -- --hostname --issuer --node-ips ;;
     autocomplete) compadd bash zsh; compadd -- --print ;;
@@ -953,13 +1047,13 @@ cmd_autocomplete() {
 }
 
 # --- main ------------------------------------------------------------------------------
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 command="${1:-}"
 [ $# -eq 0 ] || shift
 if [ -z "${command}" ]; then
   interactive || { usage; exit 1; }
-  command="$(gum choose --header "typo3-kate" deploy new status password remove autocomplete help)"
+  command="$(gum choose --header "typo3-kate" deploy new status logs password remove autocomplete help)"
 fi
 case "${command}" in
   deploy) cmd_deploy "$@" ;;
@@ -967,6 +1061,7 @@ case "${command}" in
   status) cmd_status "$@" ;;
   remove) cmd_remove "$@" ;;
   password) cmd_password "$@" ;;
+  logs) cmd_logs "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;
   autocomplete) cmd_autocomplete "$@" ;;

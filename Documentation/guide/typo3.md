@@ -90,6 +90,7 @@ Requirements: a cluster from `infra/` (`tofu apply`), plus [`gum`](https://githu
 ./kate deploy --all         # every site in projects/ except kate, one after the other
 ./kate status               # every site: namespace, domain, release, certificate, pods
 ./kate password kate        # backend user and password (--copy: to the clipboard)
+./kate logs kate frontend -f   # logs of a site's pods, prefixed with pod and container
 ./kate autocomplete         # tab completion for your shell, once
 ```
 
@@ -226,8 +227,10 @@ Rolling back changes the image and the settings. It doesn't undo database change
 Logs are JSON lines on stderr (b13/stderr-logging):
 
 ```sh
-kubectl -n typo3 logs deploy/typo3-frontend -f
-kubectl -n typo3 logs -l app.kubernetes.io/component=migrations --all-containers
+./kate logs kate frontend -f            # follow; also --since 1h, --tail 200
+./kate logs kate migrations             # every step of the last migrations Job
+./kate logs kate                        # all TYPO3 pods; components: typo3 frontend backend messenger
+                                        # scheduler mercure migrations mariadb valkey valkey-cache garage
 ```
 
 TYPO3 CLI:
