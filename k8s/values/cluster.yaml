@@ -50,13 +50,9 @@ topologySpread:
 
 httpRoute:
   enabled: true
-  parentRefs:
-    - name: public-gateway             # infra/templates/gateway.yaml.tftpl
-      namespace: gateway-system
-      # No sectionName: attach to every listener that admits this namespace,
-      # i.e. https (node IPs, cluster CA) and https-domain (Let's Encrypt).
-      # The http listener only serves the redirect to HTTPS.
-  hostnames: []                        # any host
+  # parentRefs and hostnames come from k8s/site-values.sh: the project's own
+  # Gateway "site" (k8s/project-manifests.sh) for its domain and, for the one
+  # project on the node IPs, infra's public-gateway.
 
 persistence:
   fileadmin:

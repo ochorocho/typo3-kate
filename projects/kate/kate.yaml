@@ -1,0 +1,13 @@
+# The kate site. See projects/_example/kate.yaml for every setting.
+domain: kate.ochorocho.dev
+
+acme:
+  environment: production
+
+# The namespace from before projects/ existed: database and files live there.
+namespace: typo3
+
+# Also answers on the node IPs (https://<node-ip>/, cluster CA).
+nodeIPs: true
+
+helm: {}

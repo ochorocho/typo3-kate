@@ -29,19 +29,29 @@ jobs:
         run: shellcheck -x k8s/*.sh infra/scripts/*.sh
       - uses: azure/setup-helm@v4
       - name: Helm chart
-        # The same values as k8s/deploy.sh: cluster.yaml, the site's URLs, then
-        # the helm: section of kate.yaml (here the template's)
+        # The same values as k8s/deploy.sh, for every project: cluster.yaml,
+        # the template's cluster-wide helm:, the site's URLs and routes, then
+        # the project's helm:
         run: |
-          k8s/site-values.sh https://kate.example.com > site.yaml
-          yq '.helm // {}' kate.example.yaml > kate-helm.yaml
-          values=(-f k8s/values/cluster.yaml -f site.yaml -f kate-helm.yaml --set image.repository=ci/typo3 --set image.tag=ci)
-          helm lint k8s/charts/typo3 "${values[@]}"
-          helm template ci k8s/charts/typo3 -n typo3 "${values[@]}" > rendered-cluster.yaml
+          yq '.helm // {}' kate.example.yaml > cluster-helm.yaml
+          for file in projects/*/kate.yaml; do
+            project="$(basename "$(dirname "${file}")")"
+            domain="$(yq -r '.domain // ""' "${file}")"
+            args=("https://${domain:-192.0.2.1}")
+            [ -z "${domain}" ] || args+=(--hostname "${domain}")
+            [ "$(yq -r '.nodeIPs // false' "${file}")" = false ] || args+=(--node-ips)
+            k8s/site-values.sh "${args[@]}" > "site-${project}.yaml"
+            yq '.helm // {}' "${file}" > "project-${project}.yaml"
+            values=(-f k8s/values/cluster.yaml -f cluster-helm.yaml -f "site-${project}.yaml" -f "project-${project}.yaml"
+                    --set image.repository="ci/${project}" --set image.tag=ci)
+            helm lint k8s/charts/typo3 "${values[@]}"
+            helm template typo3 k8s/charts/typo3 -n "${project}" "${values[@]}" > "rendered-${project}.yaml"
+          done
       - name: Kubernetes schemas
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
           # k8s/platform/mariadb.yaml only has mariadb-operator CRDs, which kubeconform skips
-          ./kubeconform -strict -summary -ignore-missing-schemas rendered-cluster.yaml k8s/platform/
+          ./kubeconform -strict -summary -ignore-missing-schemas rendered-*.yaml k8s/platform/
 
   infra:
     runs-on: ubuntu-latest

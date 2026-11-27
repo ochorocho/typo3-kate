@@ -1,0 +1,42 @@
+# Settings of one site. Copy the folder (projects/<name>/), add composer.json,
+# composer.lock and config/sites/, and deploy with: k8s/deploy.sh <name>
+# This file is committed: no secrets here (those go into ./kate.yaml).
+
+# Public hostname. The project gets its own Gateway listener and Let's Encrypt
+# certificate for it (DNS-01 via the Hetzner token in ./kate.yaml); point the
+# domain's A record at your public IP. Without a domain the site answers on
+# the node IPs, which only one project can do.
+domain: example.example.com
+
+acme:
+  environment: staging          # staging (test certificates), then production
+
+# Kubernetes namespace. Default: the folder name.
+# namespace: example
+
+# Also answer on the node IPs (https://<node-ip>/, cluster CA). One project only.
+# nodeIPs: false
+
+# Helm values of this site (k8s/charts/typo3/values.yaml). Last one wins.
+helm:
+  # TYPO3 scheduler (CronJob running scheduler:run), standard cron syntax in UTC
+  scheduler:
+    schedule: "* * * * *"         # every minute; e.g. "*/5 * * * *"
+  # Messenger worker. A list replaces the chart's command as a whole, so
+  # always give the full command: transport(s) first, then the options.
+  messenger:
+    command:
+      - vendor/bin/typo3
+      - messenger:consume
+      - doctrine
+      - --time-limit=3600         # restart the worker after an hour
+      - --memory-limit=256M       # ... or once it uses this much
+#      - --limit=100              # ... or after this many messages
+#      - --sleep=1                # seconds to wait when the queue is empty
+  # A smaller footprint for every site after the first (about 2.5 GiB instead of 3.5)
+#  frontend:
+#    replicaCount: 1
+#    autoscaling:
+#      enabled: false
+#  mercure:
+#    enabled: false

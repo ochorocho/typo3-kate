@@ -23,13 +23,9 @@ ssh:
   authorizedKeys: []
 #    - ssh-ed25519 AAAA... you@laptop
 
-# Any value of the Helm chart (k8s/charts/typo3/values.yaml), merged over
-# k8s/values/cluster.yaml. Last one wins, so this overrides everything.
+# Helm values for every project (k8s/charts/typo3/values.yaml), merged over
+# k8s/values/cluster.yaml. A project's own helm: (projects/<name>/kate.yaml)
+# comes later and wins.
 helm: {}
 #  typo3:
 #    mailFrom: noreply@kate.example.com
-#  mercure:
-#    enabled: false
-#  frontend:
-#    autoscaling:
-#      maxReplicas: 6

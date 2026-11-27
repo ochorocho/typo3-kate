@@ -4,13 +4,13 @@
 **Goal**: projects/kate holds composer.json/lock, config/sites and kate.yaml; the image builds per project.
 **Success Criteria**: `docker buildx build --build-arg PROJECT=kate` passes /_health/live and the settings.php check; vendor/bmack/k8s-health is a real directory.
 **Tests**: CI image job with PROJECT=kate; composer validate per project.
-**Status**: In Progress
+**Status**: Complete
 
 ## Stage 2: deploy.sh <project>
 **Goal**: deploy.sh reads projects/<p>/kate.yaml (namespace, domain, acme, nodeIPs); image per project; hostnames/parentRefs from site-values.sh; tunnel port range; guards.
 **Success Criteria**: helm template for kate equals today's routes plus the new parentRef.
 **Tests**: helm template per project, shellcheck.
-**Status**: Not Started
+**Status**: Complete
 
 ## Stage 3: Per-project Gateway, Certificate and media route
 **Goal**: k8s/project-manifests.sh renders Gateway site, Certificate site, HTTPRoute media per namespace; deploy.sh applies and waits.

@@ -1,32 +1,84 @@
 #!/usr/bin/env bash
-# Deploys TYPO3 to the libvirt cluster in infra/. Same idea as `ddev k8s-deploy`
-# in bmack/typo3-k8s-starter, but against a real cluster:
+# Deploys one TYPO3 site (projects/<project>/) to the libvirt cluster in
+# infra/. Same idea as `ddev k8s-deploy` in bmack/typo3-k8s-starter, but
+# against a real cluster:
 #
-# 1. builds the production image (docker/Dockerfile) and pushes it to the
-#    cluster registry; the release uses its digest
-# 2. creates the namespace and, once, the Secrets with random passwords
+# 1. builds the project's production image (docker/Dockerfile) and pushes it
+#    to the cluster registry; the release uses its digest
+# 2. creates the project's namespace and, once, the Secrets with random passwords
 # 3. applies k8s/platform/ (MariaDB, Valkey, Garage S3, RWX volumes) and waits for it
 # 4. empty database only: `typo3 setup` in a one-off pod (schema + admin user),
 #    then the root page and sample pages (k8s/bootstrap.sql). The chart's
 #    migrations hook can't do this: extension:setup needs be_users to exist.
 # 5. runs `helm upgrade --install` with k8s/charts/typo3: k8s/values/cluster.yaml,
-#    then the URLs of your domain, then the `helm:` section of kate.yaml
+#    the `helm:` section of ./kate.yaml (cluster-wide), the URLs and routes of
+#    the project's domain, then the `helm:` section of the project's kate.yaml
 #    (the chart's migrations hook runs extension:setup first)
 #
-# Usage: k8s/deploy.sh [--no-build]
-# Settings: kate.yaml in the repository root (git-ignored, see kate.example.yaml)
+# Usage: k8s/deploy.sh <project> [--no-build]   one site, e.g. kate
+#        k8s/deploy.sh --all [--no-build]       every folder in projects/, one after the other
+# Settings: projects/<project>/kate.yaml (domain, namespace, nodeIPs, helm:),
+#           ./kate.yaml (git-ignored, cluster-wide, see kate.example.yaml)
 # Env:   KUBECONFIG (default infra/kubeconfig), REGISTRY (default: tofu output),
-#        NAMESPACE (typo3), RELEASE (typo3)
+#        RELEASE (typo3)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NAMESPACE="${NAMESPACE:-typo3}"
+
+step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+fail() { echo "Error: $*" >&2; exit 1; }
+usage() {
+  echo "Usage: k8s/deploy.sh <project>|--all [--no-build]" >&2
+  echo "Projects: $(find "${ROOT}/projects" -mindepth 1 -maxdepth 1 -type d ! -name '_*' -exec basename {} \; | sort | tr '\n' ' ')" >&2
+  exit 1
+}
+
+PROJECT=""
+ALL=false
+BUILD=true
+for arg in "$@"; do
+  case "${arg}" in
+    --no-build) BUILD=false ;;
+    --all) ALL=true ;;
+    -*) usage ;;
+    *) [ -z "${PROJECT}" ] || usage; PROJECT="${arg}" ;;
+  esac
+done
+
+if [ "${ALL}" = true ]; then
+  [ -z "${PROJECT}" ] || usage
+  flags=()
+  [ "${BUILD}" = true ] || flags+=(--no-build)
+  for dir in "${ROOT}"/projects/*/; do
+    project="$(basename "${dir}")"
+    [[ "${project}" == _* ]] && continue   # _example and other templates
+    "$0" "${project}" "${flags[@]}"
+  done
+  exit 0
+fi
+
+[ -n "${PROJECT}" ] || usage
+[[ "${PROJECT}" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]] \
+  || fail "project name '${PROJECT}': lowercase letters, digits and dashes only (it names the image and namespace)"
+PROJECT_DIR="${ROOT}/projects/${PROJECT}"
+[ -f "${PROJECT_DIR}/composer.json" ] || fail "no projects/${PROJECT}/composer.json"
+
+# The project's settings (projects/<project>/kate.yaml, committed, no secrets).
+# Without a domain the site answers on the node IPs; only one project can.
+PROJECT_FILE="${PROJECT_DIR}/kate.yaml"
+setting() { if [ -f "${PROJECT_FILE}" ]; then yq -r "$1" "${PROJECT_FILE}"; else echo "$2"; fi; }
+NAMESPACE="$(setting ".namespace // \"${PROJECT}\"" "${PROJECT}")"
+DOMAIN="$(setting '.domain // ""' "")"
+ACME_ENVIRONMENT="$(setting '.acme.environment // "staging"' staging)"
+NODE_IPS="$(setting '.nodeIPs // false' false)"
+[ -n "${DOMAIN}" ] || NODE_IPS=true
+[[ "${ACME_ENVIRONMENT}" == staging || "${ACME_ENVIRONMENT}" == production ]] \
+  || fail "acme.environment in projects/${PROJECT}/kate.yaml must be staging or production"
+
 RELEASE="${RELEASE:-typo3}"
 BUILDER=typo3-kate
 export KUBECONFIG="${KUBECONFIG:-${ROOT}/infra/kubeconfig}"
 
-step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
-fail() { echo "Error: $*" >&2; exit 1; }
 k() { kubectl -n "${NAMESPACE}" "$@"; }
 secret_value() { k get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; }
 
@@ -36,12 +88,10 @@ done
 [ -f "${KUBECONFIG}" ] || fail "no kubeconfig at ${KUBECONFIG} (run tofu apply in infra/)"
 REGISTRY="${REGISTRY:-$(tofu -chdir="${ROOT}/infra" output -raw registry)}"
 MASTER_IP="${REGISTRY%%:*}"
+IMAGE="${REGISTRY}/${PROJECT}"
 
-# Your settings (kate.yaml): the domain and Helm overrides. Without a domain
-# the site and its URLs use the master IP.
+# Cluster-wide settings (./kate.yaml, git-ignored): Helm values for every project.
 KATE_FILE="${ROOT}/kate.yaml"
-DOMAIN=""
-[ -f "${KATE_FILE}" ] && DOMAIN="$(yq -r '.domain // ""' "${KATE_FILE}")"
 SITE_URL="https://${DOMAIN:-${MASTER_IP}}"
 
 WORK_DIR="$(mktemp -d)"
@@ -60,25 +110,56 @@ trap cleanup EXIT
 if ! kubectl get --raw /readyz >/dev/null 2>&1; then
   echo "API not reachable directly, using an SSH tunnel to ${MASTER_IP}"
   TUNNEL_DIR="${WORK_DIR}"
+  # The first free local port, so several deploys can run at the same time
+  port=""
+  for candidate in $(seq 16443 16463); do
+    if ssh -f -N -M -S "${TUNNEL_DIR}/ctl" -o ExitOnForwardFailure=yes \
+        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        -L "127.0.0.1:${candidate}:127.0.0.1:6443" "ubuntu@${MASTER_IP}" 2>/dev/null; then
+      port="${candidate}"
+      break
+    fi
+  done
+  [ -n "${port}" ] || fail "no SSH tunnel to ${MASTER_IP} (ports 16443-16463 busy or ssh refused)"
   TUNNEL_CTL="${TUNNEL_DIR}/ctl"
-  ssh -f -N -M -S "${TUNNEL_DIR}/ctl" -o ExitOnForwardFailure=yes \
-    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-    -L 127.0.0.1:16443:127.0.0.1:6443 "ubuntu@${MASTER_IP}"
-  sed "s#https://${MASTER_IP}:6443#https://127.0.0.1:16443#" "${KUBECONFIG}" > "${TUNNEL_DIR}/kubeconfig"
+  sed "s#https://${MASTER_IP}:6443#https://127.0.0.1:${port}#" "${KUBECONFIG}" > "${TUNNEL_DIR}/kubeconfig"
   export KUBECONFIG="${TUNNEL_DIR}/kubeconfig"
   kubectl get --raw /readyz >/dev/null || fail "cluster not reachable, also not through SSH"
 fi
 
+# --- 0. other projects ------------------------------------------------------
+# Each namespace records its project (annotations typo3-kate/*). A namespace
+# with the gateway-access=public label but no annotation is from before
+# projects/ and counts as the node-IP project.
+others="$(kubectl get namespaces -o json | jq -c --arg ns "${NAMESPACE}" --arg p "${PROJECT}" '
+  [.items[] | {ns: .metadata.name, a: (.metadata.annotations // {}), l: (.metadata.labels // {})}
+   | select(.a["typo3-kate/project"] != null or .l["gateway-access"] == "public")
+   | select(.ns != $ns)
+   | {ns, project: (.a["typo3-kate/project"] // "from before projects/"), domain: (.a["typo3-kate/domain"] // ""),
+      nodeIPs: (.l["gateway-access"] == "public")}]')"
+owner="$(kubectl get namespace "${NAMESPACE}" -o json 2>/dev/null | jq -r '.metadata.annotations["typo3-kate/project"] // ""' || true)"
+[ -z "${owner}" ] || [ "${owner}" = "${PROJECT}" ] \
+  || fail "namespace ${NAMESPACE} belongs to project ${owner}: set another namespace in projects/${PROJECT}/kate.yaml"
+if [ -n "${DOMAIN}" ]; then
+  taken="$(jq -r --arg d "${DOMAIN}" '.[] | select(.domain == $d) | "\(.project) (namespace \(.ns))"' <<<"${others}")"
+  [ -z "${taken}" ] || fail "${DOMAIN} is already the domain of ${taken}"
+fi
+if [ "${NODE_IPS}" = true ]; then
+  taken="$(jq -r '.[] | select(.nodeIPs) | "\(.project) (namespace \(.ns))"' <<<"${others}")"
+  [ -z "${taken}" ] || fail "only one project can answer on the node IPs and ${taken} does: give projects/${PROJECT}/kate.yaml a domain"
+fi
+
 # --- 1. image ---------------------------------------------------------------
-if [ "${1:-}" = "--no-build" ]; then
-  RELEASED="$(helm -n "${NAMESPACE}" get values "${RELEASE}" -o json 2>/dev/null | jq -r '.image.digest // empty')"
-  [ -n "${RELEASED}" ] || fail "no deployed image yet, run without --no-build"
-  DIGEST="${RELEASED}"
-  step "Reusing image ${DIGEST}"
+if [ "${BUILD}" = false ]; then
+  RELEASED="$(helm -n "${NAMESPACE}" get values "${RELEASE}" -o json 2>/dev/null || echo '{}')"
+  DIGEST="$(jq -r '.image.digest // empty' <<<"${RELEASED}")"
+  [ -n "${DIGEST}" ] || fail "no deployed image yet, run without --no-build"
+  IMAGE="$(jq -r --arg i "${IMAGE}" '.image.repository // $i' <<<"${RELEASED}")"
+  step "Reusing image ${IMAGE}@${DIGEST}"
 else
   ARCH="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')"
   TAG="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
-  step "Building ${REGISTRY}/typo3:${TAG} for linux/${ARCH}"
+  step "Building ${IMAGE}:${TAG} for linux/${ARCH}"
 
   # A BuildKit builder that may push to the plain-HTTP cluster registry.
   if ! docker buildx inspect "${BUILDER}" >/dev/null 2>&1; then
@@ -90,18 +171,25 @@ else
 
   meta="$(mktemp)"
   docker buildx build --builder "${BUILDER}" --platform "linux/${ARCH}" \
-    -f "${ROOT}/docker/Dockerfile" --build-arg PROJECT=kate -t "${REGISTRY}/typo3:${TAG}" \
+    -f "${ROOT}/docker/Dockerfile" --build-arg PROJECT="${PROJECT}" -t "${IMAGE}:${TAG}" \
     --push --metadata-file "${meta}" "${ROOT}"
   DIGEST="$(jq -r '."containerimage.digest"' "${meta}")"
   rm -f "${meta}"
   [[ "${DIGEST}" == sha256:* ]] || fail "no image digest in the build output"
-  echo "Pushed ${REGISTRY}/typo3@${DIGEST}"
+  echo "Pushed ${IMAGE}@${DIGEST}"
 fi
 
 # --- 2. namespace + secrets ---------------------------------------------------
-step "Namespace ${NAMESPACE}"
+step "Namespace ${NAMESPACE} (project ${PROJECT})"
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl label namespace "${NAMESPACE}" gateway-access=public --overwrite >/dev/null   # may attach to public-gateway
+kubectl annotate namespace "${NAMESPACE}" --overwrite \
+  typo3-kate/project="${PROJECT}" typo3-kate/domain="${DOMAIN}" >/dev/null
+if [ "${NODE_IPS}" = true ]; then
+  # may attach to public-gateway's https listener, which answers on the node IPs
+  kubectl label namespace "${NAMESPACE}" gateway-access=public --overwrite >/dev/null
+elif [ -n "$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.metadata.labels.gateway-access}')" ]; then
+  kubectl label namespace "${NAMESPACE}" gateway-access- >/dev/null
+fi
 
 if ! k get secret typo3-env >/dev/null 2>&1; then
   echo "Creating Secrets with random passwords"
@@ -189,13 +277,13 @@ spec:
       emptyDir: {}
   initContainers:
     - name: copy-config
-      image: ${REGISTRY}/typo3@${DIGEST}
+      image: ${IMAGE}@${DIGEST}
       command: ["sh", "-c", "cp /app/config/system/* /config-system/ && rm /config-system/settings.php"]
       volumeMounts:
         - {name: config-system, mountPath: /config-system}
   containers:
     - name: setup
-      image: ${REGISTRY}/typo3@${DIGEST}
+      image: ${IMAGE}@${DIGEST}
       volumeMounts:
         - {name: config-system, mountPath: /app/config/system}
       command:
@@ -206,7 +294,7 @@ spec:
           --driver=mysqli --host=typo3-mariadb --port=3306 --dbname=typo3 --username=typo3
           --password="\$TYPO3_DB_PASSWORD"
           --admin-username="\$ADMIN_USERNAME" --admin-user-password="\$ADMIN_PASSWORD"
-          --admin-email=admin@typo3-kate.local --project-name="K8s Starter"
+          --admin-email=admin@typo3-kate.local --project-name="${PROJECT}"
       envFrom:
         - secretRef:
             name: typo3-env
@@ -238,19 +326,22 @@ fi
 
 # --- 5. helm ----------------------------------------------------------------------
 step "Helm release ${RELEASE}"
-# Values, last wins: repository defaults, the URLs of the site, your overrides
-"${ROOT}/k8s/site-values.sh" "${SITE_URL}" > "${WORK_DIR}/site.yaml"
-if [ -f "${KATE_FILE}" ]; then
-  yq '.helm // {}' "${KATE_FILE}" > "${WORK_DIR}/kate.yaml"
-else
-  echo "{}" > "${WORK_DIR}/kate.yaml"
-fi
+# Values, last wins: repository defaults, cluster-wide overrides (./kate.yaml),
+# the URLs and routes of the site, the project's overrides
+site_args=("${SITE_URL}")
+[ -z "${DOMAIN}" ] || site_args+=(--hostname "${DOMAIN}")
+[ "${NODE_IPS}" = false ] || site_args+=(--node-ips)
+"${ROOT}/k8s/site-values.sh" "${site_args[@]}" > "${WORK_DIR}/site.yaml"
+helm_values() { if [ -f "$1" ]; then yq '.helm // {}' "$1"; else echo "{}"; fi; }
+helm_values "${KATE_FILE}" > "${WORK_DIR}/cluster-kate.yaml"
+helm_values "${PROJECT_FILE}" > "${WORK_DIR}/project-kate.yaml"
 helm upgrade --install "${RELEASE}" "${ROOT}/k8s/charts/typo3" \
   --namespace "${NAMESPACE}" \
   -f "${ROOT}/k8s/values/cluster.yaml" \
+  -f "${WORK_DIR}/cluster-kate.yaml" \
   -f "${WORK_DIR}/site.yaml" \
-  -f "${WORK_DIR}/kate.yaml" \
-  --set image.repository="${REGISTRY}/typo3" \
+  -f "${WORK_DIR}/project-kate.yaml" \
+  --set image.repository="${IMAGE}" \
   --set image.digest="${DIGEST}" \
   --wait --timeout 15m
 
@@ -262,6 +353,10 @@ fi
 echo
 k get pods -o wide
 echo
-echo "TYPO3:    ${SITE_URL}/   (every node IP works too; trust infra/cluster-ca.crt for those)"
+if [ "${NODE_IPS}" = true ] && [ -n "${DOMAIN}" ]; then
+  echo "TYPO3:    ${SITE_URL}/   (every node IP works too; trust infra/cluster-ca.crt for those)"
+else
+  echo "TYPO3:    ${SITE_URL}/"
+fi
 echo "Backend:  ${SITE_URL}/typo3   user: $(secret_value typo3-admin username)"
 echo "Password: kubectl -n ${NAMESPACE} get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d"
