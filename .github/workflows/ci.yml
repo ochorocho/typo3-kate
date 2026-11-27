@@ -22,8 +22,9 @@ jobs:
         run: find config packages projects docker -name '*.php' -not -path '*/vendor/*' -print0 | xargs -0 -n1 php -l
       - name: Composer files of every project
         run: |
-          for project in projects/*/; do
-            composer validate --no-check-publish --no-check-all "${project}composer.json"
+          # projects/_example is only a kate.yaml template
+          for file in projects/*/composer.json; do
+            composer validate --no-check-publish --no-check-all "${file}"
           done
       - name: Shell scripts
         run: shellcheck -x k8s/*.sh infra/scripts/*.sh
