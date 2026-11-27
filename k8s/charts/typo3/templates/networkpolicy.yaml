@@ -59,6 +59,10 @@ spec:
         - protocol: TCP
           port: {{ .Values.mercure.port }}
     {{- end }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    # Additional egress rules (networkPolicy.extraEgress)
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
     {{- if .Values.networkPolicy.allowExternalEgress }}
     # HTTPS + SMTP submission to the outside world (S3, APIs, mail relay)
     - to:

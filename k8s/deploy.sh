@@ -222,6 +222,9 @@ fi
 # --- 3. platform ----------------------------------------------------------------
 step "MariaDB, Valkey, volumes"
 k apply -f "${ROOT}/k8s/platform/"
+# Replaced by networkPolicy.extraEgress: alone it cut a new release's
+# migrations Job off from DNS (the chart's policy comes after the hook)
+k delete networkpolicy typo3-to-garage --ignore-not-found >/dev/null
 k wait mariadb/typo3-mariadb --for=condition=Ready --timeout=10m
 k wait database/typo3 user/typo3 grant/typo3 --for=condition=Ready --timeout=5m
 k rollout status statefulset/typo3-valkey --timeout=5m

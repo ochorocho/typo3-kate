@@ -301,6 +301,10 @@ networkPolicy:
   dataNamespaceLabels: {}
   # Allow HTTPS egress (S3, external APIs, mail relay …)
   allowExternalEgress: true
+  # More egress rules (NetworkPolicyEgressRule), e.g. an S3 service in the
+  # namespace. Part of this policy, so pods are never limited by a separate
+  # policy before the release (and its DNS rule) exists.
+  extraEgress: []
 
 podAnnotations: {}
 podLabels: {}

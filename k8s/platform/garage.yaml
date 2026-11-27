@@ -146,26 +146,7 @@ spec:
         resources:
           requests:
             storage: 10Gi
----
-# The chart's NetworkPolicy lets TYPO3 reach only MariaDB, Valkey and public
-# addresses. NetworkPolicies add up: this one also allows Garage's S3 API.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: typo3-to-garage
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: typo3
-      app.kubernetes.io/instance: typo3   # Helm release name in k8s/deploy.sh
-  policyTypes:
-    - Egress
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: garage
-      ports:
-        - protocol: TCP
-          port: 3900
+# TYPO3 reaches Garage's S3 API through the chart's NetworkPolicy
+# (networkPolicy.extraEgress in k8s/values/cluster.yaml): a separate policy
+# here would cut the release's first migrations Job off from DNS.
 # The route https://<site>/media/ -> Garage is per project: k8s/project-manifests.sh

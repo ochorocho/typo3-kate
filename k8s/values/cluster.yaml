@@ -74,3 +74,12 @@ networkPolicy:
   enabled: true
   ingressFromNamespaceLabels:
     kubernetes.io/metadata.name: kube-system   # k3s' Traefik
+  extraEgress:
+    # Garage's S3 API (k8s/platform/garage.yaml)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: garage
+      ports:
+        - protocol: TCP
+          port: 3900
