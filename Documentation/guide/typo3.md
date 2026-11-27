@@ -81,6 +81,27 @@ The access key is generated once by `k8s/deploy.sh` (Secret `typo3-garage`) and 
 kubectl -n typo3 exec garage-0 -- /garage bucket info media    # size, objects, keys
 ```
 
+### Garage web GUI
+
+Garage has a web admin GUI on its admin port 3903 under `/ui/`. The port is deliberately not exposed: the admin token can change every bucket and key. Open it temporarily with `kubectl port-forward`, listening on the host's LAN address (here the Odroid):
+
+```sh
+ssh -t jochen@192.168.178.114 \
+  '~/.local/bin/kubectl --kubeconfig ~/typo3-kate/infra/kubeconfig -n typo3 port-forward --address 192.168.178.114 pod/garage-0 3903:3903'
+```
+
+Then open http://192.168.178.114:3903/ui/ and log in with the admin token:
+
+```sh
+kubectl -n typo3 get secret typo3-garage -o jsonpath='{.data.admin-token}' | base64 -d; echo
+```
+
+While the port-forward runs, every device on the home network can reach the login page; Ctrl+C closes it. Never forward port 3903 on the router. Don't delete the `default access key` or change its permissions: TYPO3 uses it, and storage 2 goes offline without it.
+
+::: tip `ssh -L` fails with "administratively prohibited"
+The server's sshd has `AllowTcpForwarding no`, so SSH tunnels to it are refused. That's why the port-forward above listens on the LAN address instead.
+:::
+
 Garage runs as a single node on one local-path volume: no replication, and the data is gone with the VM disk. Back up the bucket, or move to a managed S3, before relying on it.
 
 ## Update the site
