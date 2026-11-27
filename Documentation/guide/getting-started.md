@@ -18,6 +18,22 @@ Follow the page for your machine once:
 - [Odroid H2 host](./odroid): x86_64 Linux with KVM
 - [Raspberry Pi 5 host](./raspberry-pi5): arm64 Linux with KVM (prepared, untested)
 
+## Your settings
+
+What is yours and not the repository's (the domain, the Hetzner DNS token, Let's Encrypt, any Helm value you want different) goes into one file, `kate.yaml` in the repository root. Git ignores it.
+
+```sh
+cp kate.example.yaml kate.yaml && chmod 600 kate.yaml
+```
+
+| Section | Read by | |
+|---|---|---|
+| `domain`, `acme` | OpenTofu (`infra/`) | certificate on the Gateway; win over the `*.tfvars` and `TF_VAR_*` |
+| `domain` | `k8s/deploy.sh` | media and Mercure URLs; without it they use the master IP |
+| `helm` | `k8s/deploy.sh` | any value of `k8s/charts/typo3`, applied after `k8s/values/cluster.yaml` |
+
+Without `kate.yaml` everything runs on IP addresses with the cluster CA. The `*.tfvars` keep describing the host (CPU, RAM, network), `k8s/values/cluster.yaml` the defaults for this cluster.
+
 ## 2. Create the cluster
 
 ```sh

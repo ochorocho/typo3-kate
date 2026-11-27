@@ -30,7 +30,7 @@ output "ca_certificate" {
 
 output "site_url" {
   description = "Applications behind the Gateway (HTTPS; plain HTTP redirects)."
-  value       = local.acme_enabled ? "https://${var.acme_domain}/" : "https://${local.master.ip}/"
+  value       = local.acme_enabled ? "https://${local.acme_domain}/" : "https://${local.master.ip}/"
 }
 
 output "registry" {

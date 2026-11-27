@@ -25,20 +25,22 @@ The VMs aren't reachable from the internet on their own, so Let's Encrypt can't 
 
 **2. API token:** Hetzner Console → your project → Security → API tokens → **Read & Write**. Tokens from the old DNS Console don't work with the new API.
 
-**3. Settings** in `infra/macos.tfvars`:
+**3. Settings** in `kate.yaml` in the repository root, your own file that git ignores ([your settings](./getting-started#your-settings)):
 
-```hcl
-acme_domain      = "kate.ochorocho.dev"
-acme_environment = "staging"      # then "production"
-# acme_email     = "you@example.com"   # optional
+```yaml
+domain: kate.ochorocho.dev
+acme:
+  environment: staging           # then production
+  email: ""                      # optional
+  hetznerDnsToken: "…"           # or leave empty and export TF_VAR_hetzner_dns_token
 ```
 
-**4. Apply**, with the token only in this terminal session:
+**4. Apply** the infrastructure, then deploy TYPO3, so its media and Mercure URLs use the domain:
 
 ```sh
 cd infra
-read -rs TF_VAR_hetzner_dns_token && export TF_VAR_hetzner_dns_token   # paste, Enter
 tofu apply -var-file=macos.tfvars -parallelism=1
+cd .. && k8s/deploy.sh --no-build
 ```
 
 The run copies the new manifests to the master and waits until the certificate is `Ready`. No VM is rebuilt: check that the plan replaces no `libvirt_domain`.
@@ -47,7 +49,7 @@ Start with `staging`: those certificates are untrusted on purpose, but failures 
 
 ## The token on later runs
 
-While `acme_domain` is set, **every** `tofu apply` needs the token. Without it, OpenTofu stops with an error instead of removing the certificate setup. The token is also stored in the cluster, so you don't need to keep it anywhere else:
+While a domain is set, **every** `tofu apply` needs the token: from `kate.yaml`, or from `TF_VAR_hetzner_dns_token`. Without it, OpenTofu stops with an error instead of removing the certificate setup. The token is also stored in the cluster, so you can keep it out of `kate.yaml` and read it from there:
 
 ```sh
 export TF_VAR_hetzner_dns_token="$(ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"

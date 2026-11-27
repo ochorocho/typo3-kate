@@ -51,7 +51,7 @@ locals {
 
   # Let's Encrypt is on as soon as a domain is set; the token must then be
   # passed on every run (precondition on terraform_data.platform).
-  acme_enabled = var.acme_domain != null
+  acme_enabled = local.acme_domain != null
   acme_issuers = {
     "letsencrypt-staging" = "https://acme-staging-v02.api.letsencrypt.org/directory"
     "letsencrypt"         = "https://acme-v02.api.letsencrypt.org/directory"
@@ -75,7 +75,7 @@ locals {
     "gateway.yaml" = templatefile("${path.module}/templates/gateway.yaml.tftpl", {
       tls_crt = base64encode("${tls_locally_signed_cert.gateway.cert_pem}${tls_self_signed_cert.ca.cert_pem}")
       tls_key = base64encode(tls_private_key.gateway.private_key_pem)
-      domain  = local.acme_enabled ? var.acme_domain : ""
+      domain  = local.acme_enabled ? local.acme_domain : ""
     })
     "mariadb-operator.yaml" = file("${path.module}/templates/mariadb-operator.yaml.tftpl")
     "cert-manager.yaml" = templatefile("${path.module}/templates/cert-manager.yaml.tftpl", {
@@ -83,11 +83,11 @@ locals {
     })
     }, local.acme_enabled ? {
     "acme.yaml" = templatefile("${path.module}/templates/acme.yaml.tftpl", {
-      hetzner_token = var.hetzner_dns_token == null ? "" : var.hetzner_dns_token
+      hetzner_token = local.hetzner_dns_token == null ? "" : local.hetzner_dns_token
       issuers       = local.acme_issuers
-      email         = var.acme_email == null ? "" : var.acme_email
-      domain        = var.acme_domain
-      issuer        = var.acme_environment == "production" ? "letsencrypt" : "letsencrypt-staging"
+      email         = local.acme_email == null ? "" : local.acme_email
+      domain        = local.acme_domain
+      issuer        = local.acme_environment == "production" ? "letsencrypt" : "letsencrypt-staging"
     })
   } : {})
 }
@@ -366,12 +366,16 @@ resource "terraform_data" "platform" {
   lifecycle {
     # Without the token the Secret would be emptied and renewals would fail.
     precondition {
-      condition     = !local.acme_enabled || nonsensitive(var.hetzner_dns_token != null)
+      condition     = !local.acme_enabled || nonsensitive(local.hetzner_dns_token != null)
       error_message = <<-EOT
-        acme_domain is set, so TF_VAR_hetzner_dns_token is needed on every run.
-        Read it from the cluster:
+        A domain is set, so the Hetzner DNS token is needed on every run:
+        acme.hetznerDnsToken in kate.yaml, or TF_VAR_hetzner_dns_token. Read it from the cluster:
           export TF_VAR_hetzner_dns_token="$(ssh ubuntu@${local.master.ip} "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
       EOT
+    }
+    precondition {
+      condition     = contains(["staging", "production"], local.acme_environment)
+      error_message = "acme.environment in kate.yaml (or acme_environment) must be staging or production."
     }
   }
 }

@@ -12,9 +12,5 @@ ip_offset    = 200
 master = { vcpu = 2, memory_mb = 4096, disk_gb = 30 }
 worker = { vcpu = 2, memory_mb = 6144, disk_gb = 30 } # room for MariaDB, Valkey and TYPO3
 
-# Let's Encrypt via DNS-01 on Hetzner DNS. While acme_domain is set, every
-# tofu apply needs the token (Hetzner Console API token, read+write):
-#   read -rs TF_VAR_hetzner_dns_token && export TF_VAR_hetzner_dns_token
-# or, once it is in the cluster, see Documentation/guide/public-access.md.
-acme_domain      = "kate.ochorocho.dev"
-acme_environment = "production" # "staging" for test certificates
+# Domain, Let's Encrypt and the Hetzner DNS token: kate.yaml in the
+# repository root (git-ignored, see kate.example.yaml).

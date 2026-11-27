@@ -17,7 +17,7 @@ typo3:
     TYPO3_S3_REGION: garage
     TYPO3_S3_ENDPOINT: http://garage:3900
     TYPO3_S3_PATH_STYLE: "true"
-    TYPO3_S3_PUBLIC_URL: https://kate.ochorocho.dev/media/typo3/
+    # TYPO3_S3_PUBLIC_URL: set by k8s/deploy.sh from the domain in kate.yaml
 
 database:
   host: typo3-mariadb                 # single instance: the operator's plain Service

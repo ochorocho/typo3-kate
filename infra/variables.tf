@@ -194,7 +194,7 @@ variable "cert_manager_version" {
 }
 
 variable "acme_domain" {
-  description = "Public hostname for a Let's Encrypt certificate on the Gateway, e.g. kate.ochorocho.dev. Needs hetzner_dns_token. null = IP access with the cluster CA only."
+  description = "Public hostname for a Let's Encrypt certificate on the Gateway, e.g. kate.ochorocho.dev. Needs hetzner_dns_token. null = IP access with the cluster CA only. domain in ../kate.yaml wins."
   type        = string
   default     = null
 }
@@ -217,7 +217,7 @@ variable "acme_email" {
 }
 
 variable "hetzner_dns_token" {
-  description = "Hetzner Console API token (read+write) for DNS-01. Required on every run while acme_domain is set. Pass it as TF_VAR_hetzner_dns_token, never in a committed file."
+  description = "Hetzner Console API token (read+write) for DNS-01. Required on every run while acme_domain is set. Put it in ../kate.yaml (acme.hetznerDnsToken, git-ignored) or pass it as TF_VAR_hetzner_dns_token, never in a committed file."
   type        = string
   default     = null
   sensitive   = true
