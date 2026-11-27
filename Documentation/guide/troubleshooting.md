@@ -166,9 +166,9 @@ kubectl -n cert-manager logs deploy/cert-manager-webhook-hetzner --tail=30
 
 `./kate deploy` waits up to 10 minutes for the certificate, but stops as soon as an issuance attempt has failed: cert-manager then waits an hour or more before it tries again. It prints the events and challenges, names a rate limit with its retry time, and shows how to start over once the cause is fixed: `kubectl -n <namespace> delete certificate site` and `./kate deploy <site>`.
 
-## `tofu apply`: "Let's Encrypt is on (acme: in kate.yaml), so the Hetzner DNS token is needed"
+## `tofu apply`: "Let's Encrypt is on (acme: in kate.yaml), so a DNS provider is needed"
 
-On purpose: without the token the run would remove the DNS Secret and the issuers, and no site's certificate would renew. Fetch it from the cluster and run again:
+On purpose: without credentials the run would empty the DNS Secrets, and no site's certificate would renew. Define the providers under `acme.providers` (see [DNS providers](../reference/settings#dns-providers)), or for Hetzner fetch the token from the cluster and run again:
 
 ```sh
 export TF_VAR_hetzner_dns_token="$(ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"

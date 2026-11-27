@@ -54,7 +54,11 @@ Shared by all sites, in the repository root: `packages/` (`k8s-health`, `k8s-sta
 | `acme.environment` | `staging` | `staging` (untrusted test certificates) or `production` |
 | `namespace` | the folder name | Kubernetes namespace of the site |
 | `nodeIPs` | `false` | also answer on `https://<node-ip>/` with the cluster CA. Only one site can |
+| `admin.username` | `admin` | backend user that the first install creates; changing it later has no effect on an installed site |
+| `admin.email` | `admin@typo3-kate.local` | that user's email address |
 | `helm` | `{}` | Helm values of this site, applied last |
+
+Full examples of both files: [Settings (kate.yaml)](../reference/settings).
 
 `projects/kate` is the site from before `projects/` existed: namespace `typo3` (so its database and files stay), `nodeIPs: true`, domain `kate.ochorocho.dev`.
 

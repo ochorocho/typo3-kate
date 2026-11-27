@@ -51,7 +51,7 @@ Not every combination is allowed: `socket_vmnet` requires `platform = "macos"`, 
 | `registry_size_gb` | `10` | Disk space for the registry |
 | `cert_manager_version` | `"v1.21.3"` | cert-manager Helm chart version |
 | `acme_email` | `null` | optional contact address for the Let's Encrypt account. `acme.email` in `../kate.yaml` wins |
-| `hetzner_dns_token` | `null` (sensitive) | Hetzner Console API token, read+write. Turns on the Let's Encrypt ClusterIssuers for the sites' certificates and is then needed on every run. As `acme.hetznerDnsToken` in `../kate.yaml` or `TF_VAR_hetzner_dns_token`, never in a committed file |
+| `hetzner_dns_token` | `null` (sensitive) | Hetzner Console API token, read+write, for a DNS provider `hetzner` (other providers: `acme.providers` in `../kate.yaml`, see [DNS providers](./settings#dns-providers)). Turns on the Let's Encrypt ClusterIssuers for the sites' certificates and is then needed on every run. As `acme.hetznerDnsToken` in `../kate.yaml` or `TF_VAR_hetzner_dns_token`, never in a committed file |
 | `wait_for_cluster` | `true` | After copying the manifests, wait for the dashboard and the platform (registry, NFS driver, mariadb-operator, cert-manager, Let's Encrypt issuers, Gateway) |
 
 `acme_domain` and `acme_environment` are gone: each site sets `domain` and `acme.environment` in `projects/<name>/kate.yaml`, read by `./kate deploy`.

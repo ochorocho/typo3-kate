@@ -77,6 +77,10 @@ Before sites had their own Gateways, `infra/` served the domain with an `https-d
 4. optional: `kubectl -n gateway-system delete secret site-tls` (the old certificate)
 5. remove `domain` and `acme.environment` from the root `kate.yaml` (`tofu` warns while they are there)
 
+## Other DNS providers
+
+Hetzner is one of five DNS providers: Cloudflare, AWS Route 53, DigitalOcean and RFC2136 (any DNS server with dynamic updates) work as well, side by side. Define them by name under `acme.providers` in the root `kate.yaml` and pick one per site with `acme.provider` in `projects/<name>/kate.yaml`; settings and credentials of each: [DNS providers](../reference/settings#dns-providers).
+
 ## Certificates across rebuilds
 
 Let's Encrypt issues at most **5 certificates per week for the same domain**, with no exceptions, and the allowance refills only slowly (one every 34 hours). Certificates live in the cluster, so every rebuild, and every `./kate remove` followed by a new deploy, would order a new one.
@@ -101,6 +105,8 @@ acme:
 `./kate deploy` then creates the Certificate `wildcard` (`*.ochorocho.dev`, Secret `wildcard-tls`) in `gateway-system` once, or restores its saved copy, and every site whose domain is exactly one level below it uses it: its Gateway refers to the shared Secret, allowed by a ReferenceGrant `site-<namespace>` in `gateway-system`. Such a site's own Certificate is saved and removed once its Gateway runs with the wildcard. Sites on other domains (or deeper, like `a.b.ochorocho.dev`) keep their own certificate; `acme.environment` in a site's `kate.yaml` only applies to those.
 
 What it saves: one certificate per rebuild instead of one per site, so the limit of 50 certificates per week for all names under `ochorocho.dev` stays far away. The wildcard is one set of names, with its own 5 per week, kept across rebuilds like the others. Each site still needs a DNS record; a wildcard record `*.ochorocho.dev` pointing at your public IP spares that step for new sites.
+
+`./kate dns` sets the wildcard DNS record at Hetzner, with the same token: an A record `*.<domain>` pointing at your public address (`--ip`; without it, it suggests the address an existing site under the wildcard resolves to, or this machine's public IPv4 from api.ipify.org). It shows the current and the new value and asks before changing anything (`--yes` skips that). Records for single names still win over it.
 
 `./kate status` shows such a site's certificate as the wildcard's state, and `./kate remove` deletes only the site's ReferenceGrant; the wildcard stays for the others.
 
