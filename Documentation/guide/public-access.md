@@ -33,8 +33,13 @@ Traefik serves every Gateway on port 443 and picks the certificate by the name t
 ```yaml
 acme:
   email: ""                      # optional
-  hetznerDnsToken: "…"           # or leave empty and export TF_VAR_hetzner_dns_token
+  providers:
+    hetzner:
+      type: hetzner
+      token: "…"                 # plain ASCII quotes
 ```
+
+Other DNS providers: see [Other DNS providers](#other-dns-providers).
 
 **4. Apply** the infrastructure. It creates the token Secret and the two ClusterIssuers and waits until they are ready. No VM is rebuilt: check that the plan replaces no `libvirt_domain`.
 
@@ -75,7 +80,7 @@ Before sites had their own Gateways, `infra/` served the domain with an `https-d
 2. `./kate deploy kate`: creates the Gateway `site` and its certificate in `typo3`. The old listener keeps serving the domain meanwhile.
 3. `tofu apply` in `infra/`: removes the `https-domain` listener and the Certificate in `gateway-system`
 4. optional: `kubectl -n gateway-system delete secret site-tls` (the old certificate)
-5. remove `domain` and `acme.environment` from the root `kate.yaml` (`tofu` warns while they are there)
+5. remove `domain` and `acme.environment` from the root `kate.yaml`: nothing reads them any more
 
 ## Other DNS providers
 
@@ -112,11 +117,13 @@ What it saves: one certificate per rebuild instead of one per site, so the limit
 
 ## The token on later runs
 
-While the root `kate.yaml` has an `acme:` section, **every** `tofu apply` needs the token: from `kate.yaml`, or from `TF_VAR_hetzner_dns_token`. Without it, OpenTofu stops with an error instead of removing the issuers, which would stop every site's certificate from renewing. The token is also stored in the cluster, so you can keep it out of `kate.yaml` and read it from there:
+While the root `kate.yaml` has an `acme:` section, **every** `tofu apply` needs the providers' credentials in `acme.providers`. Without them, OpenTofu stops with an error instead of removing the issuers, which would stop every site's certificate from renewing. Lost a Hetzner token? The cluster keeps a copy:
 
 ```sh
-export TF_VAR_hetzner_dns_token="$(ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
+ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret dns-hetzner -o jsonpath='{.data.token}' | base64 -d"
 ```
+
+`acme.hetznerDnsToken` (and `TF_VAR_hetzner_dns_token`) from earlier versions is gone: `tofu` stops while it is in `kate.yaml` and shows how to move the token to `acme.providers.hetzner`.
 
 ## Check it
 
@@ -158,4 +165,4 @@ On the **Odroid** with `network_mode = "bridge"`, the VMs have their own LAN add
 
 For one site: remove `domain` from its `projects/<name>/kate.yaml` and deploy it. It then answers on the node IPs, which only one site can. Delete its old Gateway and Certificate by hand: `kubectl -n <namespace> delete gateway,certificate site`.
 
-For the whole cluster: remove the `acme:` section from the root `kate.yaml`, unset `TF_VAR_hetzner_dns_token` and apply in `infra/`. The issuers and the token Secret are removed, and no site's certificate renews any more. IP access with the cluster CA stays.
+For the whole cluster: remove the `acme:` section from the root `kate.yaml` and apply in `infra/`. The issuers and the token Secret are removed, and no site's certificate renews any more. IP access with the cluster CA stays.

@@ -8,18 +8,14 @@
 # section exists, tofu needs the DNS providers' credentials on every run.
 acme:
   email: ""                     # optional contact address
-  # Hetzner Console -> project -> Security -> API tokens, Read & Write.
-  # Alternatively keep it out of this file: export TF_VAR_hetzner_dns_token
-  # (Shorthand for a provider "hetzner"; or use providers: below.)
-  hetznerDnsToken: ""
-  # Several DNS providers, each with a name of your choice. A site picks one
-  # with acme.provider in projects/<name>/kate.yaml; without it the site uses
+  # DNS providers, each with a name of your choice. A site picks one with
+  # acme.provider in projects/<name>/kate.yaml; without it the site uses
   # defaultProvider (else "hetzner", else the only one).
   # defaultProvider: hetzner
-  # providers:
-  #   hetzner:
-  #     type: hetzner             # Hetzner Console API token, Read & Write
-  #     token: ""
+  providers:
+    hetzner:
+      type: hetzner             # Hetzner Console -> project -> Security -> API tokens, Read & Write
+      token: ""
   #   cloudflare:
   #     type: cloudflare          # API token with Zone:DNS:Edit (and Zone:Read)
   #     apiToken: ""

@@ -696,18 +696,13 @@ fi
 # acme.providers in ./kate.yaml, rendered into the ClusterIssuers by infra/dns.tf.
 # A Certificate labelled typo3-kate/dns-provider=<name> uses that provider; the
 # default one (same rule as dns.tf) also takes Certificates without a label.
-# dns_providers: their names; acme.hetznerDnsToken alone counts as "hetzner"
+# dns_providers: their names
 dns_providers() {
   [ -f "${KATE_FILE}" ] || return 0
-  local names
-  names="$(yq -r '(.acme.providers // {}) | keys | .[]' "${KATE_FILE}")"
-  if [ -n "$(yq -r '.acme.hetznerDnsToken // ""' "${KATE_FILE}")" ] && ! grep -qx hetzner <<<"${names}"; then
-    names="$(printf '%s\nhetzner' "${names}")"
-  fi
-  grep -v '^$' <<<"${names}" | sort -u || true
+  yq -r '(.acme.providers // {}) | keys | .[]' "${KATE_FILE}" | sort -u
 }
 # dns_default: acme.defaultProvider, else hetzner, else the only one, else
-# hetzner (a cluster set up with the token from TF_VAR_hetzner_dns_token)
+# hetzner (no ./kate.yaml on this machine)
 dns_default() {
   local names configured=""
   names="$(dns_providers)"
@@ -797,17 +792,16 @@ warn_new_production() {
 }
 
 # --- dns: the wildcard DNS record ------------------------------------------------------
-# An A record *.<acme.wildcard.domain> at Hetzner DNS (Cloud API, the token
-# from acme.hetznerDnsToken), so a new site under the wildcard needs no DNS
-# step. Records of single names (kate.example.com) still win over it.
+# An A record *.<acme.wildcard.domain> at Hetzner DNS (Cloud API, with the
+# token of the wildcard's provider in acme.providers), so a new site under
+# the wildcard needs no DNS step. Records of single names still win over it.
 HCLOUD_API=https://api.hetzner.cloud/v1
 
-# dns_token <provider>: its token from ./kate.yaml (acme.providers.<name>.token,
-# or acme.hetznerDnsToken), TF_VAR_hetzner_dns_token, else the cluster's copy
+# dns_token <provider>: acme.providers.<name>.token in ./kate.yaml, else the
+# cluster's copy (Secret dns-<name>; "hetzner" on clusters from before)
 dns_token() {
   local token=""
-  [ ! -f "${KATE_FILE}" ] || token="$(NAME="$1" yq -r '.acme.providers[strenv(NAME)].token // .acme.hetznerDnsToken // ""' "${KATE_FILE}")"
-  token="${token:-${TF_VAR_hetzner_dns_token:-}}"
+  [ ! -f "${KATE_FILE}" ] || token="$(NAME="$1" yq -r '.acme.providers[strenv(NAME)].token // ""' "${KATE_FILE}")"
   if [ -z "${token}" ]; then
     connect
     local secret
@@ -816,7 +810,7 @@ dns_token() {
       [ -z "${token}" ] || break
     done
   fi
-  [ -n "${token}" ] || fail "no Hetzner DNS token for provider $1: acme.providers.$1.token in ./kate.yaml or TF_VAR_hetzner_dns_token"
+  [ -n "${token}" ] || fail "no Hetzner DNS token for provider $1: acme.providers.$1.token in ./kate.yaml"
   echo "${token}"
 }
 

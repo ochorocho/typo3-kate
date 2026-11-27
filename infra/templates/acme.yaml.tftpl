@@ -1,11 +1,10 @@
 # Let's Encrypt via DNS-01: the cluster isn't reachable from the internet, so
 # cert-manager proves ownership with a TXT record at the DNS provider instead.
 # The providers and their credentials come from acme.providers in
-# ../kate.yaml (or acme.hetznerDnsToken alone), see dns.tf. The ClusterIssuers
-# serve every site's Certificate (./kate manifests); each provider is a solver
-# for Certificates labelled typo3-kate/dns-provider=<name>, the default one
-# also for those without a label.
-# Only present while Let's Encrypt is on (acme: in ../kate.yaml or a token).
+# ../kate.yaml, see dns.tf. The ClusterIssuers serve every site's Certificate
+# (./kate manifests); each provider is a solver for Certificates labelled
+# typo3-kate/dns-provider=<name>, the default one also for those without a
+# label. Only present while Let's Encrypt is on (acme: in ../kate.yaml).
 %{ for secret in secrets ~}
 ${yamlencode(secret)}
 ---

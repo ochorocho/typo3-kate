@@ -93,7 +93,7 @@ browser ──:80───▶ public-gateway http ─▶ redirect to https
 | Object | Namespace | Created by |
 |---|---|---|
 | Gateway `public-gateway`, GatewayClass `traefik`, Secret `gateway-tls` | `gateway-system` | `infra/` |
-| ClusterIssuers `letsencrypt`, `letsencrypt-staging`, a Secret per DNS provider (`hetzner` or `dns-<name>`) | cluster / `cert-manager` | `infra/`, while `acme:` is set |
+| ClusterIssuers `letsencrypt`, `letsencrypt-staging`, a Secret `dns-<name>` per DNS provider | cluster / `cert-manager` | `infra/`, while `acme:` is set |
 | Certificate `wildcard` (Secret `wildcard-tls`), ReferenceGrant `site-<namespace>` per site | `gateway-system` | `./kate deploy`, with `acme.wildcard` |
 | Gateway `site`, Certificate `site` (Secret `site-tls`) | the site's | `./kate manifests`, only with a `domain` |
 | HTTPRoute `media` | the site's | `./kate manifests` |

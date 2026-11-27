@@ -4,7 +4,6 @@
 # typo3-kate/dns-provider=<name>. Each provider becomes a solver that matches
 # that label, and the default provider also the solver without a label, so
 # Certificates from before (and their saved copies) keep working.
-# acme.hetznerDnsToken alone is the provider "hetzner", as before.
 
 locals {
   dns_provider_types = ["hetzner", "cloudflare", "route53", "digitalocean", "rfc2136"]
@@ -26,15 +25,7 @@ locals {
       secret            = "dns-${name}"
     }
   }
-  dns_legacy = nonsensitive(local.hetzner_dns_token != null) && !contains(keys(local.dns_explicit), "hetzner") ? {
-    hetzner = {
-      type              = "hetzner", token = local.hetzner_dns_token, api_token = "", region = "", access_key_id = "",
-      secret_access_key = "", hosted_zone_id = "", nameserver = "", tsig_key_name = "",
-      tsig_algorithm    = "HMACSHA256", tsig_secret = "",
-      secret            = "hetzner" # the Secret's name from before acme.providers
-    }
-  } : {}
-  dns_providers = merge(local.dns_legacy, local.dns_explicit)
+  dns_providers = local.dns_explicit
   dns_names     = keys(local.dns_providers)
 
   # acme.defaultProvider, else "hetzner", else the only one

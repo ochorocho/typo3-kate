@@ -168,11 +168,25 @@ kubectl -n cert-manager logs deploy/cert-manager-webhook-hetzner --tail=30
 
 ## `tofu apply`: "Let's Encrypt is on (acme: in kate.yaml), so a DNS provider is needed"
 
-On purpose: without credentials the run would empty the DNS Secrets, and no site's certificate would renew. Define the providers under `acme.providers` (see [DNS providers](../reference/settings#dns-providers)), or for Hetzner fetch the token from the cluster and run again:
+On purpose: without credentials the run would empty the DNS Secrets, and no site's certificate would renew. Define the providers under `acme.providers` (see [DNS providers](../reference/settings#dns-providers)). A lost Hetzner token can be read from the cluster (`dns-hetzner`, or `hetzner` on a cluster from before `acme.providers`):
 
 ```sh
-export TF_VAR_hetzner_dns_token="$(ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
+ssh ubuntu@192.168.105.200 "sudo k3s kubectl -n cert-manager get secret dns-hetzner -o jsonpath='{.data.token}' | base64 -d"
 ```
+
+## `tofu apply`: "acme.hetznerDnsToken in kate.yaml is gone"
+
+The shorthand from earlier versions was removed. Move the token, unchanged, to a provider:
+
+```yaml
+acme:
+  providers:
+    hetzner:
+      type: hetzner
+      token: "<the token>"
+```
+
+On the next `tofu apply` the cluster's Secret `hetzner` becomes `dns-hetzner`; certificates stay as they are.
 
 ## TYPO3: "Media (S3)" shows as offline
 
@@ -202,10 +216,6 @@ It checks the other sites before it builds anything:
 | `only one project can answer on the node IPs` | another site has `nodeIPs: true` or no domain. Give this one a `domain` |
 
 What a namespace belongs to is in its annotations: `kubectl get namespace typo3 -o jsonpath='{.metadata.annotations}'`.
-
-## `tofu apply`: "domain and acme.environment in kate.yaml are ignored now"
-
-A warning: these settings moved to `projects/<name>/kate.yaml`. Remove them from the root `kate.yaml`. On a cluster that still has the old `https-domain` listener, follow [the migration](./public-access#migrating-from-the-domain-in-infra) first.
 
 ## Raspberry Pi 5: VMs don't start
 

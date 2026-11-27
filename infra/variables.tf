@@ -199,13 +199,6 @@ variable "acme_email" {
   default     = null
 }
 
-variable "hetzner_dns_token" {
-  description = "Hetzner Console API token (read+write) for DNS-01, the provider hetzner (others: acme.providers in ../kate.yaml). Turns on the Let's Encrypt ClusterIssuers for the projects' certificates and is then required on every run. Put it in ../kate.yaml (acme.hetznerDnsToken, git-ignored) or pass it as TF_VAR_hetzner_dns_token, never in a committed file."
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
 variable "wait_for_cluster" {
   description = "After copying the manifests, wait until the dashboard and the platform (registry, storage, operators, Gateway, certificate) are ready."
   type        = bool

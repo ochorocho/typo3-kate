@@ -18,8 +18,7 @@ cp kate.example.yaml kate.yaml && chmod 600 kate.yaml   # it holds the DNS token
 | Setting | Default | Read by | |
 |---|---|---|---|
 | `acme.email` | none | OpenTofu | contact address of the Let's Encrypt account |
-| `acme.hetznerDnsToken` | none | OpenTofu, `./kate dns` | shorthand for one provider `hetzner`: Hetzner Console API token (Read & Write). OpenTofu stores it in the cluster (Secret `hetzner` in `cert-manager`); `TF_VAR_hetzner_dns_token` works instead |
-| `acme.providers.<name>` | none | OpenTofu, `./kate` | DNS providers for DNS-01, each under a name of your choice: Hetzner, Cloudflare, Route 53, DigitalOcean or RFC2136, see [DNS providers](#dns-providers) |
+| `acme.providers.<name>` | none | OpenTofu, `./kate` | DNS providers for DNS-01, each under a name of your choice: Hetzner, Cloudflare, Route 53, DigitalOcean or RFC2136, see [DNS providers](#dns-providers). OpenTofu stores the credentials in the cluster (Secret `dns-<name>` in `cert-manager`) |
 | `acme.defaultProvider` | `hetzner`, else the only provider | OpenTofu, `./kate` | the provider for sites without `acme.provider` (needed with several providers and none called `hetzner`) |
 | `acme.wildcard.domain` | none | `./kate deploy`, `status`, `dns` | one certificate for `*.<domain>`, shared by every site exactly one level below it; see [one certificate for all subdomains](../guide/public-access#one-certificate-for-all-subdomains-wildcard) |
 | `acme.wildcard.environment` | `staging` | `./kate deploy` | `staging` or `production` for the wildcard certificate |
@@ -27,7 +26,7 @@ cp kate.example.yaml kate.yaml && chmod 600 kate.yaml   # it holds the DNS token
 | `ssh.authorizedKeys` | `[]` | OpenTofu | more public keys for `ssh ubuntu@<node>`, added on every apply without rebuilding the VMs |
 | `helm` | `{}` | `./kate deploy` | Helm values for every site, see [order of the Helm values](#order-of-the-helm-values) |
 
-The `acme:` section turns on the Let's Encrypt ClusterIssuers: OpenTofu creates them as long as the section exists, and every `tofu apply` then needs the providers' credentials (without them the issuers would lose their Secrets and no certificate would renew). `domain` and `acme.environment` here are ignored (each site sets them itself); `tofu` warns while they are present.
+The `acme:` section turns on the Let's Encrypt ClusterIssuers: OpenTofu creates them as long as the section exists, and every `tofu apply` then needs the providers' credentials (without them the issuers would lose their Secrets and no certificate would renew). `domain` and `acme.environment` belong in each site's `kate.yaml`, not here.
 
 ### Full example
 

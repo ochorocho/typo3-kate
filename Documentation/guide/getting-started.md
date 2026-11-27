@@ -31,14 +31,14 @@ cp kate.example.yaml kate.yaml && chmod 600 kate.yaml
 
 | Section of `kate.yaml` | Read by | |
 |---|---|---|
-| `acme` (`email`, `hetznerDnsToken`, `providers`, `defaultProvider`) | OpenTofu (`infra/`) | Let's Encrypt issuers and the DNS providers (Hetzner, Cloudflare, Route 53, DigitalOcean, RFC2136) for every site's certificate; win over the `*.tfvars` and `TF_VAR_*` |
+| `acme` (`email`, `providers`, `defaultProvider`) | OpenTofu (`infra/`) | Let's Encrypt issuers and the DNS providers (Hetzner, Cloudflare, Route 53, DigitalOcean, RFC2136) for every site's certificate; win over the `*.tfvars` and `TF_VAR_*` |
 | `acme.wildcard` (`domain`, `environment`) | `./kate deploy`, `./kate dns` | one certificate for `*.<domain>`, shared by the sites below it |
 | `ssh.authorizedKeys` | OpenTofu (`infra/`) | more public keys for `ssh ubuntu@<node>` |
 | `helm` | `./kate deploy` | any value of `k8s/charts/typo3`, for every site, applied after `k8s/values/cluster.yaml` |
 
 Every setting of both files, with defaults and full examples: [Settings (kate.yaml)](../reference/settings).
 
-`domain` and `acme.environment` in the root `kate.yaml` are ignored now (`tofu` warns): each site sets them in its own `projects/<name>/kate.yaml`.
+Each site sets its domain and Let's Encrypt environment in its own `projects/<name>/kate.yaml`; the root `kate.yaml` has no such settings.
 
 Without `kate.yaml` everything runs on IP addresses with the cluster CA. The `*.tfvars` keep describing the host (CPU, RAM, network), `k8s/values/cluster.yaml` the defaults for this cluster.
 

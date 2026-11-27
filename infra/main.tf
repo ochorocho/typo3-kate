@@ -50,11 +50,11 @@ locals {
   registry = "${local.master.ip}:${var.registry_node_port}"
 
   # Let's Encrypt (the ClusterIssuers every site's certificate uses) is on
-  # while ../kate.yaml has an acme: section or a token is passed. The DNS
-  # providers' credentials must then come on every run (preconditions on
+  # while ../kate.yaml has an acme: section. The DNS providers' credentials
+  # (acme.providers) must then come on every run (preconditions on
   # terraform_data.platform): without them the issuers would lose their
   # Secrets and no certificate would renew. Providers: dns.tf.
-  acme_enabled = local.acme_configured || nonsensitive(local.hetzner_dns_token != null)
+  acme_enabled = local.acme_configured
   acme_issuers = {
     "letsencrypt-staging" = "https://acme-staging-v02.api.letsencrypt.org/directory"
     "letsencrypt"         = "https://acme-v02.api.letsencrypt.org/directory"
@@ -369,9 +369,20 @@ resource "terraform_data" "platform" {
     precondition {
       condition     = !local.acme_enabled || length(local.dns_providers) > 0
       error_message = <<-EOT
-        Let's Encrypt is on (acme: in kate.yaml), so a DNS provider is needed on every run:
-        acme.providers in kate.yaml, or acme.hetznerDnsToken / TF_VAR_hetzner_dns_token for Hetzner. Read the Hetzner token from the cluster:
-          export TF_VAR_hetzner_dns_token="$(ssh ubuntu@${local.master.ip} "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
+        Let's Encrypt is on (acme: in kate.yaml), so a DNS provider is needed on every run: acme.providers in kate.yaml.
+        Lost the Hetzner token? Read it from the cluster:
+          ssh ubuntu@${local.master.ip} "sudo k3s kubectl -n cert-manager get secret dns-hetzner -o jsonpath='{.data.token}' | base64 -d"
+      EOT
+    }
+    precondition {
+      condition     = try(local.kate.acme.hetznerDnsToken, null) == null
+      error_message = <<-EOT
+        acme.hetznerDnsToken in kate.yaml is gone: define the provider instead, with the same token:
+          acme:
+            providers:
+              hetzner:
+                type: hetzner
+                token: "<the token>"
       EOT
     }
     precondition {
