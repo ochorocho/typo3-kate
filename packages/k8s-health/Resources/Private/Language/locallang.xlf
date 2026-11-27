@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+	<file source-language="en" datatype="plaintext" original="EXT:k8s_health/Resources/Private/Language/locallang.xlf" date="2026-11-27T00:00:00Z" product-name="k8s_health">
+		<header/>
+		<body>
+			<trans-unit id="pod.title" resname="pod.title">
+				<source>Pod</source>
+			</trans-unit>
+			<trans-unit id="valkey.title" resname="valkey.title">
+				<source>Valkey (sessions, locks)</source>
+			</trans-unit>
+			<trans-unit id="valkeyCache.title" resname="valkeyCache.title">
+				<source>Valkey (caches)</source>
+			</trans-unit>
+			<trans-unit id="messengerWorker.title" resname="messengerWorker.title">
+				<source>Messenger worker</source>
+			</trans-unit>
+			<trans-unit id="messengerQueue.title" resname="messengerQueue.title">
+				<source>Message queue</source>
+			</trans-unit>
+			<trans-unit id="database.ok" resname="database.ok">
+				<source>reachable</source>
+			</trans-unit>
+			<trans-unit id="database.unreachable" resname="database.unreachable">
+				<source>unreachable</source>
+			</trans-unit>
+			<trans-unit id="valkey.ok" resname="valkey.ok">
+				<source>reachable (%s)</source>
+			</trans-unit>
+			<trans-unit id="valkey.unreachable" resname="valkey.unreachable">
+				<source>unreachable (%s)</source>
+			</trans-unit>
+			<trans-unit id="valkey.notConfigured" resname="valkey.notConfigured">
+				<source>not configured</source>
+			</trans-unit>
+			<trans-unit id="valkey.noExtension" resname="valkey.noExtension">
+				<source>PHP extension redis missing</source>
+			</trans-unit>
+			<trans-unit id="messenger.workers.none" resname="messenger.workers.none">
+				<source>no worker has run yet</source>
+			</trans-unit>
+			<trans-unit id="messenger.workers.running" resname="messenger.workers.running">
+				<source>%d running (%s), %d messages handled</source>
+			</trans-unit>
+			<trans-unit id="messenger.workers.failures" resname="messenger.workers.failures">
+				<source>running, %d messages failed, last: %s</source>
+			</trans-unit>
+			<trans-unit id="messenger.workers.restarting" resname="messenger.workers.restarting">
+				<source>restarting (%s)</source>
+			</trans-unit>
+			<trans-unit id="messenger.workers.stale" resname="messenger.workers.stale">
+				<source>%s silent for %s: stuck or killed</source>
+			</trans-unit>
+			<trans-unit id="messenger.workers.stopped" resname="messenger.workers.stopped">
+				<source>stopped %s ago</source>
+			</trans-unit>
+			<trans-unit id="messenger.workers.unavailable" resname="messenger.workers.unavailable">
+				<source>status table missing, run extension:setup</source>
+			</trans-unit>
+			<trans-unit id="messenger.queue.empty" resname="messenger.queue.empty">
+				<source>empty</source>
+			</trans-unit>
+			<trans-unit id="messenger.queue.waiting" resname="messenger.queue.waiting">
+				<source>%d waiting, oldest %s</source>
+			</trans-unit>
+			<trans-unit id="messenger.queue.unavailable" resname="messenger.queue.unavailable">
+				<source>cannot be read</source>
+			</trans-unit>
+		</body>
+	</file>
+</xliff>

@@ -6,6 +6,11 @@ services:
 
   Bmack\K8sHealth\:
     resource: '../Classes/*'
+    exclude:
+      - '../Classes/Check/CheckResult.php'
+      - '../Classes/Check/Duration.php'
+      - '../Classes/Check/Status.php'
+      - '../Classes/Messenger/WorkerState.php'
 
   Bmack\K8sHealth\Middleware\HealthCheck:
     public: true
