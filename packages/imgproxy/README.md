@@ -8,9 +8,9 @@ typo3-kate's glue for sites with `imgproxy.enabled` in their `kate.yaml`: images
 - `kate:processed-files:reset` deletes the processed files of every storage (fileadmin and S3, through each storage's driver) and their records, so TYPO3 makes them again. `./kate reprocess <site>` runs it and flushes the page cache; `./kate deploy` does so when a site switches between ImageMagick and imgproxy. Unlike `cleanup:localprocessedfiles` from EXT:lowlevel, it isn't limited to storages with the Local driver.
 
 ```sh
-cd projects/<site> && composer require ochorocho/kate-imgproxy:@dev
+./kate composer <site> require ochorocho/kate-imgproxy:@dev
 ```
 
-EXT:media_processing 1.0 allows Symfony 7 only (TYPO3 v14); TYPO3 v15 is on Symfony 8, see [upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41). On v15, require it with an inline alias: `composer require "symfony/options-resolver:8.1.10 as 7.4.99" ochorocho/kate-imgproxy:@dev`
+EXT:media_processing 1.0 allows Symfony 7 only (TYPO3 v14); TYPO3 v15 is on Symfony 8, see [upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41). On v15, require it with an inline alias: `./kate composer <site> require "symfony/options-resolver:8.1.10 as 7.4.99" ochorocho/kate-imgproxy:@dev`
 
 Tests: `../../projects/kate/vendor/bin/phpunit -c packages/imgproxy/phpunit.xml.dist` (with the kate site's dependencies installed).

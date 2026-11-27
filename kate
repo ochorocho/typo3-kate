@@ -13,6 +13,7 @@
 #   ./kate logs [<site>] [<component>] [-f] [--since 1h] [--tail 100]
 #   ./kate certificates                        the saved certificate copies
 #   ./kate reprocess [<site>]                  make every processed image again
+#   ./kate composer <site> [<arguments>]       composer for a site, with its own PHP
 #   ./kate dns [--ip <ipv4>] [--ttl 300] [--yes]  A record *.<acme.wildcard.domain>
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
@@ -126,7 +127,7 @@ imgproxy_check() {
   [ -n "${DOMAIN}" ] \
     || fail "imgproxy.enabled needs a domain in projects/${PROJECT}/kate.yaml: imgproxy fetches the originals through it"
   jq -e '.packages[] | select(.name == "ochorocho/kate-imgproxy")' "${PROJECT_DIR}/composer.lock" >/dev/null 2>&1 \
-    || fail "imgproxy.enabled needs ochorocho/kate-imgproxy: cd projects/${PROJECT} && composer require ochorocho/kate-imgproxy:@dev"
+    || fail "imgproxy.enabled needs ochorocho/kate-imgproxy: ./kate composer ${PROJECT} require ochorocho/kate-imgproxy:@dev"
 }
 
 php_supported() { [[ " ${PHP_VERSIONS} " == *" $1 "* ]]; }
@@ -1136,7 +1137,7 @@ cmd_new() {
   mkdir -p "${dir}/config"
   cp "${ROOT}/projects/${from}/composer.json" "${dir}/"
   # packages/ for the site's own extensions (e.g. its site package), found
-  # through the path repository packages/*: composer require <name>:@dev
+  # through the path repository packages/*: ./kate composer <site> require <name>:@dev
   mkdir -p "${dir}/packages"
   touch "${dir}/packages/.gitkeep"
   local repository_added=false
@@ -1147,13 +1148,14 @@ cmd_new() {
     repository_added=true
   fi
   [ ! -f "${ROOT}/projects/${from}/composer.lock" ] || cp "${ROOT}/projects/${from}/composer.lock" "${dir}/"
-  # The lock file's hash covers composer.json, repositories included
+  # The lock file's hash covers composer.json, repositories included. --no-scripts:
+  # no TYPO3 plugin code runs, so the host's PHP version doesn't matter here
   if [ "${repository_added}" = true ] && [ -f "${dir}/composer.lock" ]; then
     if command -v composer >/dev/null; then
       (cd "${dir}" && composer update --lock --no-install --no-interaction --no-scripts --ignore-platform-reqs -q 2>/dev/null) \
-        || note "composer.lock is out of date: cd projects/${name} && composer update --lock"
+        || note "composer.lock is out of date: ./kate composer ${name} update --lock"
     else
-      note "composer.lock is out of date (no composer here): cd projects/${name} && composer update --lock"
+      note "composer.lock is out of date (no composer here): ./kate composer ${name} update --lock"
     fi
   fi
   cp -R "${ROOT}/projects/${from}/config/sites" "${dir}/config/"
@@ -1165,7 +1167,7 @@ cmd_new() {
 
   step "Created projects/${name}"
   note "From projects/${from}: composer.json, composer.lock, config/sites/. Settings: projects/${name}/kate.yaml"
-  note "Own extensions go into projects/${name}/packages/<name>/, then: composer require <vendor/name>:@dev"
+  note "Own extensions go into projects/${name}/packages/<name>/, then: ./kate composer ${name} require <vendor/name>:@dev"
   [ -z "${domain}" ] || note "Before deploying: an A record for ${domain} (and the zone in Hetzner DNS for the certificate)"
   note "Deploy: ./kate deploy ${name}"
 }
@@ -1291,6 +1293,48 @@ cmd_password() {
     # stdout, so ./kate password <site> | pbcopy also works
     echo "${password}"
   fi
+}
+
+# --- composer: for a site, with its own PHP ------------------------------------------------
+# Runs composer in projects/<site>/ inside the site's base image (its php: and
+# imgproxy variant), so PHP and extensions match the production image and the
+# host's PHP doesn't matter. The repository is mounted whole, so the path
+# repositories ../../packages/* and packages/* resolve; files are written as
+# the calling user. The base image has no composer: a tiny image on top adds
+# it from composer:2 (cached by docker).
+cmd_composer() {
+  [ $# -ge 1 ] && [[ "$1" != -* ]] || fail "Usage: ./kate composer <site> [<composer arguments>], e.g. ./kate composer shop require vendor/package"
+  load_project "$1"
+  shift
+  need docker
+  local base tag
+  base="${BASE_IMAGE}:${PHP_VERSION}$([ "${IMGPROXY}" = true ] && echo -imgproxy || true)"
+  tag="typo3-kate-composer:${PHP_VERSION}$([ "${IMGPROXY}" = true ] && echo -imgproxy || true)"
+  # Current base when the registry answers, the cached one otherwise
+  local context
+  context="$(mktemp -d)"
+  printf 'FROM %s\nCOPY --from=composer:2 /usr/bin/composer /usr/bin/composer\n' "${base}" > "${context}/Dockerfile"
+  wait_for "composer image on ${base}" docker build --pull -q -t "${tag}" "${context}" >/dev/null 2>&1 \
+    || docker build -q -t "${tag}" "${context}" >/dev/null \
+    || { rm -rf "${context}"; fail "no composer image on ${base}: is it pulled or reachable?"; }
+  rm -rf "${context}"
+
+  local cache="${COMPOSER_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/composer}" auth="" file
+  mkdir -p "${cache}"
+  # Logins for private repositories, from this machine's composer
+  for file in "${COMPOSER_HOME:-${HOME}/.composer}/auth.json" "${HOME}/.config/composer/auth.json"; do
+    [ -f "${file}" ] && { auth="$(cat "${file}")"; break; }
+  done
+  local tty=()
+  [ ! -t 0 ] || [ ! -t 1 ] || tty=(-t)
+  note "composer $* in projects/${PROJECT} (PHP ${PHP_VERSION})"
+  docker run --rm -i ${tty[@]+"${tty[@]}"} \
+    -u "$(id -u):$(id -g)" \
+    -v "${ROOT}:/src" -w "/src/projects/${PROJECT}" \
+    -v "${cache}:/composer-cache" \
+    -e HOME=/tmp -e COMPOSER_HOME=/tmp/composer -e COMPOSER_CACHE_DIR=/composer-cache \
+    ${auth:+-e COMPOSER_AUTH="${auth}"} \
+    "${tag}" composer "$@"
 }
 
 # --- reprocess: a site's processed images, made again --------------------------------------
@@ -1551,7 +1595,7 @@ _kate() {
     [ "${site}" = kate ] || deployable="${deployable} ${site}"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
-    words="deploy new status logs password certificates reprocess dns remove values manifests autocomplete help"
+    words="deploy new status logs password certificates reprocess composer dns remove values manifests autocomplete help"
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
@@ -1566,6 +1610,9 @@ _kate() {
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
           reprocess) words="${sites}" ;;
+          composer)
+            if [ "${COMP_CWORD}" -eq 2 ]; then words="${sites}"
+            else words="require remove update install show outdated why why-not validate dump-autoload config"; fi ;;
           dns) words="--ip --ttl --yes" ;;
           logs)
             # the site first, then the component
@@ -1602,6 +1649,7 @@ _kate() {
       'logs:what the pods of a site write'
       'certificates:the saved certificate copies'
       'reprocess:make every processed image of a site again'
+      'composer:composer for a site, with its own PHP'
       'dns:the wildcard DNS record at Hetzner'
       'remove:remove a site from the cluster'
       'values:Helm values of a site (CI)'
@@ -1625,6 +1673,9 @@ _kate() {
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
     reprocess) compadd -a sites ;;
+    composer)
+      if (( CURRENT == 3 )); then compadd -a sites
+      else compadd require remove update install show outdated why why-not validate dump-autoload config; fi ;;
     dns) compadd -- --ip --ttl --yes ;;
     logs)
       if (( CURRENT == 3 )); then compadd -a sites
@@ -1679,7 +1730,7 @@ cmd_autocomplete() {
 }
 
 # --- main ------------------------------------------------------------------------------
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 command="${1:-}"
 [ $# -eq 0 ] || shift
@@ -1696,6 +1747,7 @@ case "${command}" in
   logs) cmd_logs "$@" ;;
   certificates) cmd_certificates "$@" ;;
   reprocess) cmd_reprocess "$@" ;;
+  composer) cmd_composer "$@" ;;
   dns) cmd_dns "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;

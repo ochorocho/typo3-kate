@@ -71,19 +71,21 @@ Full examples of both files: [Settings (kate.yaml)](../reference/settings).
 ./kate deploy shop
 ```
 
-`./kate new` creates `packages/` for the site's own extensions, adds the path repository `packages/*` to its `composer.json` (an extension in `packages/<name>/` is then installed with `composer require <vendor/name>:@dev`), copies `composer.json`, `composer.lock` and `config/sites/` from an existing site (`--from <site>`, asked for when there are several) and writes `projects/shop/kate.yaml` from the template with the domain, the Let's Encrypt environment and, if it differs from the name, the namespace. `--node-ips` lets the site answer on the node IPs instead; without a domain it always does. Edit `composer.json` and the `helm:` section afterwards as needed (`composer update` in the folder rewrites the lock file).
+`./kate new` creates `packages/` for the site's own extensions, adds the path repository `packages/*` to its `composer.json` (an extension in `packages/<name>/` is then installed with `./kate composer <site> require <vendor/name>:@dev`), copies `composer.json`, `composer.lock` and `config/sites/` from an existing site (`--from <site>`, asked for when there are several) and writes `projects/shop/kate.yaml` from the template with the domain, the Let's Encrypt environment and, if it differs from the name, the namespace. `--node-ips` lets the site answer on the node IPs instead; without a domain it always does. Edit `composer.json` and the `helm:` section afterwards as needed (`./kate composer <site> update` rewrites the lock file).
 
 The domain needs an A record pointing at your public IP and must be in a Hetzner DNS zone the token may edit (see [Public domain & Let's Encrypt](./public-access#another-site)). Folders starting with `_` (like `_example`) are templates and are skipped by `--all`. Check the memory first: [Odroid H2 host](./odroid#several-sites).
 
 ### Composer
 
-Composer runs inside the site's folder, locally as in the image build:
+`./kate composer <site>` runs Composer for a site in its base image, with the site's PHP version and the same extensions as its production image (`ext-redis` included), so the PHP on your machine doesn't matter and `--ignore-platform-reqs` isn't needed. It works in `projects/<site>/` with the repository mounted (the path repositories resolve), writes files as you, uses your Composer cache and passes your `auth.json` on:
 
 ```sh
-cd projects/kate
-composer install
-composer update typo3/cms-core
+./kate composer kate install
+./kate composer kate update typo3/cms-core
+./kate composer shop require vendor/package
 ```
+
+Plain `composer` in the site's folder works too, if your PHP fits the site: TYPO3's Composer plugin runs core code after every install, and TYPO3 v15 needs PHP 8.5.
 
 ## Deploy
 
@@ -147,7 +149,7 @@ A base built locally instead (offline, or to try a change): `docker build -f doc
 By default TYPO3 processes images itself with ImageMagick 7. With `imgproxy.enabled: true` in a site's `kate.yaml`, [imgproxy](https://github.com/imgproxy/imgproxy) does it instead, through [EXT:media_processing](https://github.com/somehow-digital/typo3-media-processing):
 
 ```sh
-cd projects/shop && composer require ochorocho/kate-imgproxy:@dev   # once: EXT:media_processing + the glue
+./kate composer shop require ochorocho/kate-imgproxy:@dev   # once: EXT:media_processing + the glue
 # projects/shop/kate.yaml:  imgproxy: { enabled: true }   (the site needs a domain)
 ./kate deploy shop
 ```
@@ -174,7 +176,7 @@ Without the package it falls back to `cleanup:localprocessedfiles --all` (EXT:lo
 EXT:media_processing 1.0 allows Symfony 7 only, TYPO3 v15 (`dev-main`) is on Symfony 8 ([upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41)). On TYPO3 v14 it installs as it is. On v15, require it with an inline alias that lets Symfony 8 count as 7.x for this one requirement:
 
 ```sh
-composer require "symfony/options-resolver:8.1.10 as 7.4.99" ochorocho/kate-imgproxy:@dev
+./kate composer shop require "symfony/options-resolver:8.1.10 as 7.4.99" ochorocho/kate-imgproxy:@dev
 ```
 
 The extension only uses `setDefaults()` and `resolve()` of the OptionsResolver, both unchanged in Symfony 8. Use the version your lock file has, adjust it on Symfony updates, and drop the line once #41 is released.

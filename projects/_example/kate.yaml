@@ -26,7 +26,7 @@ acme:
 
 # Images through imgproxy instead of ImageMagick 7: the site's image then has
 # no image tools, imgproxy runs in its namespace and TYPO3 stores the results.
-# Needs a domain and, in this folder: composer require ochorocho/kate-imgproxy:@dev
+# Needs a domain and: ./kate composer <site> require ochorocho/kate-imgproxy:@dev
 # imgproxy:
 #   enabled: false
 
