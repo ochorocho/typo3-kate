@@ -11,6 +11,7 @@
 #   ./kate remove [<site>] [--yes] [--delete-volumes]
 #   ./kate password [<site>] [--copy]          backend login of a site
 #   ./kate logs [<site>] [<component>] [-f] [--since 1h] [--tail 100]
+#   ./kate certificates                        the saved certificate copies
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
 #   ./kate autocomplete [bash|zsh] [--print]   tab completion for your shell
@@ -609,6 +610,51 @@ restore_certificate() {
   note "Restored the saved certificate for ${domain} (valid until $(openssl x509 -noout -enddate <<<"${crt}" | cut -d= -f2)), nothing is ordered"
 }
 
+# --- certificates: the saved copies ------------------------------------------------------
+# epoch <date from openssl -enddate>: seconds since 1970 (GNU and BSD date)
+epoch() { date -d "$1" +%s 2>/dev/null || date -j -f "%b %e %H:%M:%S %Y %Z" "$1" +%s; }
+
+cmd_certificates() {
+  [ $# -eq 0 ] || fail "Usage: ./kate certificates"
+  need jq openssl
+  local files=() file
+  for file in "${CERT_DIR}"/*.json; do
+    [ -f "${file}" ] && files+=("${file}")
+  done
+  if [ ${#files[@]} -eq 0 ]; then
+    note "No saved certificates in ${CERT_DIR} yet: ./kate deploy saves each issued one."
+    return
+  fi
+  local rows=() name domain issuer environment crt end days state now
+  now="$(date +%s)"
+  for file in "${files[@]}"; do
+    name="$(basename "${file}" .json)"
+    case "${name}" in
+      *.letsencrypt-staging) issuer=letsencrypt-staging; environment=staging ;;
+      *.letsencrypt) issuer=letsencrypt; environment=production ;;
+      *) continue ;;
+    esac
+    domain="${name%."${issuer}"}"
+    crt="$(jq -r '.data["tls.crt"] // empty' "${file}" 2>/dev/null | base64 -d 2>/dev/null || true)"
+    end="$(openssl x509 -noout -enddate <<<"${crt}" 2>/dev/null | cut -d= -f2 || true)"
+    if [ -z "${end}" ]; then
+      rows+=("${domain},${environment},-,-,unreadable")
+      continue
+    fi
+    days=$(( ($(epoch "${end}") - now) / 86400 ))
+    if ! openssl x509 -noout -checkend 0 <<<"${crt}" >/dev/null; then
+      state="expired"
+    elif ! openssl x509 -noout -checkend 604800 <<<"${crt}" >/dev/null; then
+      state="expires soon: not restored"
+    else
+      state="restored on deploy"
+    fi
+    rows+=("${domain},${environment},${end},${days},${state}")
+  done
+  printf '%s\n' "${rows[@]}" | gum table --print --separator "," --columns "Domain,Environment,Valid until,Days left,State"
+  note "In ${CERT_DIR}"
+}
+
 # certificate_failed: why the site's Certificate isn't Ready, then fail
 certificate_failed() {
   local described
@@ -1022,7 +1068,7 @@ _kate() {
     [ "${site}" = kate ] || deployable="${deployable} ${site}"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
-    words="deploy new status logs password remove values manifests autocomplete help"
+    words="deploy new status logs password certificates remove values manifests autocomplete help"
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
@@ -1068,6 +1114,7 @@ _kate() {
       'status:every site and its state'
       'password:backend login of a site'
       'logs:what the pods of a site write'
+      'certificates:the saved certificate copies'
       'remove:remove a site from the cluster'
       'values:Helm values of a site (CI)'
       'manifests:Gateway, certificate and media route of a site (CI)'
@@ -1141,13 +1188,13 @@ cmd_autocomplete() {
 }
 
 # --- main ------------------------------------------------------------------------------
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 command="${1:-}"
 [ $# -eq 0 ] || shift
 if [ -z "${command}" ]; then
   interactive || { usage; exit 1; }
-  command="$(gum choose --header "typo3-kate" deploy new status logs password remove autocomplete help)"
+  command="$(gum choose --header "typo3-kate" deploy new status logs password certificates remove autocomplete help)"
 fi
 case "${command}" in
   deploy) cmd_deploy "$@" ;;
@@ -1156,6 +1203,7 @@ case "${command}" in
   remove) cmd_remove "$@" ;;
   password) cmd_password "$@" ;;
   logs) cmd_logs "$@" ;;
+  certificates) cmd_certificates "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;
   __wait-certificate) cmd_wait_certificate "$@" ;;   # internal, run under a spinner

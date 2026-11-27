@@ -83,6 +83,8 @@ Let's Encrypt issues at most **5 certificates per week for the same domain**, wi
 
 That's why `./kate` keeps a copy of every issued certificate on the machine you deploy from: `~/.local/state/typo3-kate/certificates/<domain>.<issuer>.json`, readable only by you, because it holds the private key. `./kate deploy` writes it once the certificate is ready, and `./kate remove` writes it before deleting the namespace. When a site is deployed into a namespace without a certificate, `./kate deploy` restores the copy first if it is for the same domain and environment and valid for at least 7 more days. cert-manager then finds a valid certificate and orders nothing.
 
+`./kate certificates` lists the copies on this machine: domain, environment, expiry, days left and whether a deploy would restore it.
+
 Only when there is no copy to restore does `./kate deploy` order a new production certificate, and it says so. Use `acme.environment: staging` while you rebuild clusters or try things out. `./kate new` suggests staging, and uses it when run without a terminal.
 
 ## The token on later runs
