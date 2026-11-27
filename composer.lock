@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "bc8f673f4fed61aaa4ca56916030440e",
+    "content-hash": "81e1059b6dab4c52a7bce908127aa8a2",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -2230,11 +2230,17 @@
         },
         {
             "name": "ochorocho/typo3-mercure",
-            "version": "dev-main",
+            "version": "1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ochorocho/typo3-mercure.git",
+                "reference": "88234c4760cbf236f8f64a7e8728a5e6ca501cef"
+            },
             "dist": {
-                "type": "path",
-                "url": "packages/typo3-mercure",
-                "reference": "2f6bbfd7978b09e8e8704dbac100c7525c3ffd50"
+                "type": "zip",
+                "url": "https://api.github.com/repos/ochorocho/typo3-mercure/zipball/88234c4760cbf236f8f64a7e8728a5e6ca501cef",
+                "reference": "88234c4760cbf236f8f64a7e8728a5e6ca501cef",
+                "shasum": ""
             },
             "require": {
                 "lcobucci/jwt": "^5.5",
@@ -2259,18 +2265,17 @@
                     "Ochorocho\\Mercure\\": "Classes/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Ochorocho\\Mercure\\Tests\\": "Tests/"
-                }
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "GPL-2.0-or-later"
             ],
             "description": "Mercure for TYPO3: publish real-time updates with symfony/mercure, synchronously or through TYPO3's message bus, and subscribe from Fluid with authorization cookies",
-            "transport-options": {
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/ochorocho/typo3-mercure/issues",
+                "source": "https://github.com/ochorocho/typo3-mercure/tree/1.0.0"
+            },
+            "time": "2026-11-27T14:36:45+00:00",
+            "published-time": "2026-11-27T14:48:50+00:00"
         },
         {
             "name": "phpdocumentor/reflection-common",
@@ -11459,7 +11464,6 @@
         "b13/typo3-s3-driver": 20,
         "bmack/k8s-health": 20,
         "bmack/k8s-starter": 20,
-        "ochorocho/typo3-mercure": 20,
         "typo3/cms-adminpanel": 20,
         "typo3/cms-backend": 20,
         "typo3/cms-belog": 20,

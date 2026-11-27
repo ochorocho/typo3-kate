@@ -30,7 +30,6 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `k8s/bootstrap.sql` | root page and sample pages (his `seed.sql` expects the root page from `typo3 setup`) |
 | `docker/prepare-settings.php` | brings `settings.php` up to date at build time, see below |
 | `packages/k8s-health` (extended) | besides the probes: Valkey, messenger worker (heartbeats in `tx_k8shealth_messenger_worker`) and queue in the backend's System Information menu |
-| `packages/typo3-mercure` | `ochorocho/typo3-mercure`: symfony/mercure wired into TYPO3 (services, message bus, Fluid, subscriber cookies, CLI), configured by the chart's `MERCURE_*` variables |
 
 ## Platform (set up by `infra/`)
 

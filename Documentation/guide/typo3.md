@@ -89,13 +89,13 @@ Only database and Valkey count for `/_health/ready`: pages work without the work
 
 ### Mercure
 
-`ochorocho/typo3-mercure` (`packages/typo3-mercure`) connects TYPO3 to the hub. It reads the variables the chart sets (`MERCURE_URL`, `MERCURE_PUBLIC_URL`, the JWT keys, `MERCURE_JWT_ISSUER`). Turn the hub on with `mercure.enabled: true` in `k8s/values/cluster.yaml`, then try it:
+[`ochorocho/typo3-mercure`](https://packagist.org/packages/ochorocho/typo3-mercure) connects TYPO3 to the hub. It reads the variables the chart sets (`MERCURE_URL`, `MERCURE_PUBLIC_URL`, the JWT keys, `MERCURE_JWT_ISSUER`). Turn the hub on with `mercure.enabled: true` in `k8s/values/cluster.yaml`, then try it:
 
 ```sh
 kubectl -n typo3 exec deploy/typo3-backend -- vendor/bin/typo3 mercure:publish https://kate.ochorocho.dev/demo '{"hello":"world"}'
 ```
 
-Usage from PHP and Fluid: [packages/typo3-mercure/README.md](https://github.com/ochorocho/typo3-kate/tree/main/packages/typo3-mercure).
+Usage from PHP and Fluid: [the extension's README](https://github.com/ochorocho/typo3-mercure#readme).
 
 ## S3 storage ("Media (S3)")
 
