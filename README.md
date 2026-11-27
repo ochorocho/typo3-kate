@@ -89,6 +89,7 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ./kate status                                      # every site and its state
 ./kate password kate --copy                        # backend password to the clipboard
 ./kate certificates                                # saved certificate copies (survive cluster rebuilds)
+./kate reprocess shop                              # make every processed image again (automatic on an imgproxy switch)
 ./kate dns                                         # wildcard DNS record *.<acme.wildcard.domain> at Hetzner
 ./kate autocomplete                                # tab completion for zsh or bash (once)
 helm -n typo3 rollback typo3 <revision>              # go back to an earlier release
@@ -111,7 +112,7 @@ k8s/                   everything that runs on the cluster
 └── bootstrap.sql      first pages for an empty database
 docker/                production image (FrankenPHP, PHP 8.5), built per site
 config/system/         shared by all sites: configuration from env vars
-packages/              shared by all sites: health checks, site package
+packages/              shared by all sites: health checks, site package, imgproxy glue
 kate.example.yaml      template for kate.yaml: cluster-wide settings (git-ignored)
 Documentation/         VitePress docs (npm run dev)
 ```

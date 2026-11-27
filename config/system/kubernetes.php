@@ -175,5 +175,11 @@ $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromAddress'] = $env('TYPO3_MAIL
 // ---------------------------------------------------------------------------
 // Image processing
 // ---------------------------------------------------------------------------
-$GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] = 'GraphicsMagick';
+// The base image says what it has (docker/base.Dockerfile): ImageMagick 7, or
+// no image tools for sites with imgproxy (EXT:media_processing then processes
+// the images, and TYPO3 itself only hands out originals)
+$GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] = 'ImageMagick';
 $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor_path'] = '/usr/bin/';
+if ($env('TYPO3_KATE_IMAGE_TOOLS', 'imagemagick') === 'none') {
+    $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor_enabled'] = false;
+}

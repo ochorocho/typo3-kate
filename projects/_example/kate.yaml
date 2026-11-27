@@ -24,6 +24,12 @@ acme:
 # 8.5 (default) or 8.4. The site's composer packages must allow it.
 # php: "8.5"
 
+# Images through imgproxy instead of ImageMagick 7: the site's image then has
+# no image tools, imgproxy runs in its namespace and TYPO3 stores the results.
+# Needs a domain and, in this folder: composer require ochorocho/kate-imgproxy:@dev
+# imgproxy:
+#   enabled: false
+
 # The backend admin the first install creates (./kate password <name> shows
 # the login). Changing it later has no effect on an installed site.
 # admin:

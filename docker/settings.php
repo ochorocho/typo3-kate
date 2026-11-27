@@ -16,7 +16,7 @@ return [
         ],
     ],
     'GFX' => [
-        'processor' => 'GraphicsMagick',
+        'processor' => 'ImageMagick',
         'processor_path' => '/usr/bin/',
     ],
     'SYS' => [

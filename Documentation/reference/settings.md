@@ -66,6 +66,7 @@ helm:                               # every site
 | `acme.provider` | `acme.defaultProvider` | the DNS provider (a name from `acme.providers` in the root `kate.yaml`) that proves the site's domain. Ignored for a site under the wildcard, which uses `acme.wildcard.provider` |
 | `namespace` | the folder name | Kubernetes namespace. `projects/kate` keeps `typo3` from before `projects/` existed |
 | `nodeIPs` | `false` | also answer on `https://<node-ip>/` with the cluster CA. One site only; always `true` without a domain |
+| `imgproxy.enabled` | `false` | process images with [imgproxy](../guide/typo3#images-imagemagick-or-imgproxy) instead of ImageMagick. Needs a `domain` and `ochorocho/kate-imgproxy` in the site's `composer.json` |
 | `php` | `8.5` | PHP version: `8.5` or `8.4`, the versions with a prebuilt base image. The site's composer packages must allow it (TYPO3 v15 needs 8.5) |
 | `admin.username` | `admin` | backend user the first install creates (letters, digits, `. _ @ -`). Changing it later has no effect on an installed site |
 | `admin.email` | `admin@typo3-kate.local` | that user's email address |
@@ -83,6 +84,8 @@ acme:
 namespace: shop
 nodeIPs: false
 php: "8.4"                        # e.g. a TYPO3 v14 site
+imgproxy:
+  enabled: true                     # composer require ochorocho/kate-imgproxy:@dev
 admin:
   username: jochen
   email: jochen@example.com

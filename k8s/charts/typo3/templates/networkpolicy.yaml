@@ -59,6 +59,16 @@ spec:
         - protocol: TCP
           port: {{ .Values.mercure.port }}
     {{- end }}
+    {{- if .Values.imgproxy.enabled }}
+    # Have images processed by imgproxy
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "typo3.selectorLabels" (dict "ctx" . "component" "imgproxy") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.imgproxy.port }}
+    {{- end }}
     {{- with .Values.networkPolicy.extraEgress }}
     # Additional egress rules (networkPolicy.extraEgress)
     {{- toYaml . | nindent 4 }}
@@ -108,4 +118,47 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.mercure.port }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled .Values.imgproxy.enabled }}
+---
+# Adds to the policy above: only the TYPO3 pods may use imgproxy, and imgproxy
+# may fetch originals from the site (imgproxy.sourceEgress)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "typo3.fullname" . }}-imgproxy
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+    app.kubernetes.io/component: imgproxy
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "typo3.selectorLabels" (dict "ctx" . "component" "imgproxy") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "typo3.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.imgproxy.port }}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with .Values.imgproxy.sourceEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}

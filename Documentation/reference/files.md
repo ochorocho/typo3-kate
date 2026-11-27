@@ -46,13 +46,15 @@ projects/<name>/               one site each
 ├── kate.yaml                  domain, acme.environment, namespace, nodeIPs, helm: (no secrets)
 ├── composer.json, composer.lock  the site's packages; path repository ../../packages/*
 ├── config/sites/              site configuration (versioned, baked into the image)
-└── packages/                  optional: packages of this site only
+└── packages/                  optional: packages of this site only (with a path repository packages/*)
 projects/kate/                 the kate site (from bmack/typo3-k8s-starter), namespace typo3
 projects/_example/kate.yaml    template for a new site; folders starting with _ are skipped by --all
 config/system/                 shared: configuration from environment variables (a site has none of its own)
-packages/                      shared: k8s-health (health checks), k8s-starter (site package)
-docker/                        production image, built per site (--build-arg PROJECT=<name>, PHP_VERSION)
-                               on base.Dockerfile, the runtime published as ghcr.io/ochorocho/typo3-kate-base;
+packages/                      shared: k8s-health (health checks), k8s-starter (site package),
+                               imgproxy (ochorocho/kate-imgproxy: EXT:media_processing for imgproxy.enabled)
+docker/                        production image, built per site (--build-arg PROJECT=<name>, PHP_VERSION, BASE_VARIANT)
+                               on base.Dockerfile, the runtime published as ghcr.io/ochorocho/typo3-kate-base:<php>
+                               (ImageMagick 7) and :<php>-imgproxy (no image tools);
                                prepare-settings.php runs at build time
 kate                           the one script (needs gum): deploy, new, status, remove;
                                values and manifests (a site's Helm values, Gateway,

@@ -250,6 +250,37 @@ mercure:
       memory: 128Mi
 
 # -----------------------------------------------------------------------------
+# imgproxy (optional): processes images instead of ImageMagick, for
+# EXT:media_processing (ochorocho/kate-imgproxy in the site's composer.json).
+# Internal only: TYPO3 stores each result in _processed_ and serves it.
+# imgproxy fetches originals from sourceUrl, the site itself (fileadmin and the
+# S3 storage alike), and only from there. Signing key and salt (hex) come from
+# the TYPO3 Secret: IMGPROXY_KEY, IMGPROXY_SALT.
+# -----------------------------------------------------------------------------
+imgproxy:
+  enabled: false
+  image:
+    repository: ghcr.io/imgproxy/imgproxy
+    tag: v4.0.25
+    pullPolicy: IfNotPresent
+  port: 8080
+  # The site's URL, e.g. https://www.example.com. Required.
+  sourceUrl: ""
+  # Don't verify the certificate at sourceUrl (Let's Encrypt staging)
+  ignoreSslVerification: false
+  # Egress rules (NetworkPolicyEgressRule) to reach sourceUrl, e.g. the
+  # ingress controller's pods when the site's domain resolves to it in-cluster
+  sourceEgress: []
+  # More IMGPROXY_* settings, e.g. IMGPROXY_MAX_SRC_RESOLUTION: "50"
+  extraEnv: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# -----------------------------------------------------------------------------
 # Storage
 # Target state: fileadmin on S3 via a FAL driver -> nothing here is needed.
 # Migration path: mount an existing RWX volume (NFS/EFS/CephFS) first.

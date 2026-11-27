@@ -12,6 +12,7 @@
 #   ./kate password [<site>] [--copy]          backend login of a site
 #   ./kate logs [<site>] [<component>] [-f] [--since 1h] [--tail 100]
 #   ./kate certificates                        the saved certificate copies
+#   ./kate reprocess [<site>]                  make every processed image again
 #   ./kate dns [--ip <ipv4>] [--ttl 300] [--yes]  A record *.<acme.wildcard.domain>
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
@@ -112,6 +113,20 @@ load_project() {
   PHP_VERSION="$(setting ".php // \"${PHP_VERSIONS%% *}\"" "${PHP_VERSIONS%% *}")"
   php_supported "${PHP_VERSION}" \
     || fail "php: ${PHP_VERSION} in projects/${PROJECT}/kate.yaml: one of ${PHP_VERSIONS} (those have a base image)"
+  # imgproxy instead of ImageMagick (ochorocho/kate-imgproxy in composer.json)
+  IMGPROXY="$(setting '.imgproxy.enabled // false' false)"
+  [[ "${IMGPROXY}" == true || "${IMGPROXY}" == false ]] \
+    || fail "imgproxy.enabled in projects/${PROJECT}/kate.yaml must be true or false"
+}
+
+# imgproxy_check: a site with imgproxy needs a domain (imgproxy fetches
+# originals through it) and the glue package in its composer.lock
+imgproxy_check() {
+  [ "${IMGPROXY}" = true ] || return 0
+  [ -n "${DOMAIN}" ] \
+    || fail "imgproxy.enabled needs a domain in projects/${PROJECT}/kate.yaml: imgproxy fetches the originals through it"
+  jq -e '.packages[] | select(.name == "ochorocho/kate-imgproxy")' "${PROJECT_DIR}/composer.lock" >/dev/null 2>&1 \
+    || fail "imgproxy.enabled needs ochorocho/kate-imgproxy: cd projects/${PROJECT} && composer require ochorocho/kate-imgproxy:@dev"
 }
 
 php_supported() { [[ " ${PHP_VERSIONS} " == *" $1 "* ]]; }
@@ -193,6 +208,7 @@ cmd_values() {
   SITE_URL="${site_url}" PARENT_REFS="[$(IFS=,; echo "${refs[*]}")]" HOSTNAMES="${hostnames}" yq -n '
     .typo3.extraEnv.TYPO3_S3_PUBLIC_URL = strenv(SITE_URL) + "/media/typo3/" |
     .mercure.publicUrl = strenv(SITE_URL) + "/.well-known/mercure" |
+    .imgproxy.sourceUrl = strenv(SITE_URL) |
     .httpRoute.parentRefs = env(PARENT_REFS) |
     .httpRoute.hostnames = env(HOSTNAMES)'
 }
@@ -339,12 +355,14 @@ cmd_deploy() {
 
   load_project "${project}"
   need docker kubectl helm jq yq openssl tofu
+  imgproxy_check
   if [ "${asked}" = true ]; then
     gum style --border rounded --padding "0 1" >&2 \
       "Site:      ${PROJECT}" "Namespace: ${NAMESPACE}" \
       "Domain:    ${DOMAIN:-(none, node IPs)}" \
       "Let's Encrypt: $(if [ -n "$(wildcard_for "${DOMAIN}")" ]; then echo "*.${WILDCARD_DOMAIN} (${WILDCARD_ENVIRONMENT}, ${WILDCARD_PROVIDER:-$(dns_default)})"; elif [ -n "${DOMAIN}" ]; then echo "${ACME_ENVIRONMENT}, DNS provider ${ACME_PROVIDER:-$(dns_default)}"; else echo "-"; fi)" \
       "Node IPs:  ${NODE_IPS}" "PHP:       ${PHP_VERSION}" \
+      "Images:    $([ "${IMGPROXY}" = true ] && echo "imgproxy" || echo "ImageMagick 7")" \
       "Image:     $([ "${build}" = true ] && echo "build a new one" || echo "keep the current one")"
     gum confirm "Deploy?" || fail "cancelled"
   fi
@@ -396,7 +414,8 @@ cmd_deploy() {
     meta="${WORK_DIR}/build-meta.json"
     docker buildx build --builder "${BUILDER}" --platform "linux/${arch}" \
       -f "${ROOT}/docker/Dockerfile" --build-arg PROJECT="${PROJECT}" \
-      --build-arg PHP_VERSION="${PHP_VERSION}" --build-arg BASE_IMAGE="${BASE_IMAGE}" -t "${image}:${tag}" \
+      --build-arg PHP_VERSION="${PHP_VERSION}" --build-arg BASE_IMAGE="${BASE_IMAGE}" \
+      --build-arg BASE_VARIANT="$([ "${IMGPROXY}" = true ] && echo -imgproxy || true)" -t "${image}:${tag}" \
       --push --metadata-file "${meta}" "${ROOT}"
     digest="$(jq -r '."containerimage.digest"' "${meta}")"
     [[ "${digest}" == sha256:* ]] || fail "no image digest in the build output"
@@ -451,6 +470,14 @@ cmd_deploy() {
       --arg key "$(secret_value typo3-garage access-key)" \
       --arg secret "$(secret_value typo3-garage secret-key)" \
       '{stringData: {TYPO3_S3_KEY: $key, TYPO3_S3_SECRET: $secret}}')" >/dev/null
+  fi
+  # imgproxy signing key and salt: always present, so imgproxy.enabled can be switched on any time
+  if [ -z "$(k get secret typo3-env -o jsonpath='{.data.IMGPROXY_KEY}')" ]; then
+    note "Adding the imgproxy signing key to typo3-env"
+    k patch secret typo3-env --type merge -p "$(jq -n \
+      --arg key "$(openssl rand -hex 64)" \
+      --arg salt "$(openssl rand -hex 64)" \
+      '{stringData: {IMGPROXY_KEY: $key, IMGPROXY_SALT: $salt}}')" >/dev/null
   fi
   # Mercure JWT keys: always present, so mercure.enabled can be switched on any time.
   if [ -z "$(k get secret typo3-env -o jsonpath='{.data.MERCURE_PUBLISHER_JWT_KEY}')" ]; then
@@ -621,6 +648,17 @@ YAML
   [ -z "${DOMAIN}" ] || values_args+=(--hostname "${DOMAIN}")
   [ "${NODE_IPS}" = false ] || values_args+=(--node-ips)
   cmd_values "${values_args[@]}" > "${WORK_DIR}/site.yaml"
+  local imgproxy_args=()
+  if [ "${IMGPROXY}" = true ]; then
+    # Originals come through the site's domain: resolve it to Traefik in the
+    # cluster. A staging certificate isn't trusted, so don't verify it then.
+    coredns_set "${NAMESPACE}" "${DOMAIN}"
+    local environment="${ACME_ENVIRONMENT}"
+    [ -z "$(wildcard_for "${DOMAIN}")" ] || environment="${WILDCARD_ENVIRONMENT}"
+    imgproxy_args=(--set imgproxy.enabled=true --set "imgproxy.ignoreSslVerification=$([ "${environment}" = staging ] && echo true || echo false)")
+  else
+    coredns_unset "${NAMESPACE}"
+  fi
   helm_values() { if [ -f "$1" ]; then yq '.helm // {}' "$1"; else echo "{}"; fi; }
   helm_values "${KATE_FILE}" > "${WORK_DIR}/cluster-kate.yaml"
   helm_values "${PROJECT_FILE}" > "${WORK_DIR}/project-kate.yaml"
@@ -633,10 +671,23 @@ YAML
       -f "${WORK_DIR}/project-kate.yaml" \
       --set image.repository="${image}" \
       --set image.digest="${digest}" \
+      ${imgproxy_args[@]+"${imgproxy_args[@]}"} \
       --wait --timeout 15m
   if [ "${first_install}" = true ]; then
     k exec deploy/"${RELEASE}"-backend -- vendor/bin/typo3 cache:flush >/dev/null   # caches in Valkey are shared
   fi
+
+  # Switched between ImageMagick and imgproxy: the processed images of the old
+  # way stay in use until they're gone, so remove them (the new pods run now).
+  # The first deploy only records the way.
+  local images previous
+  images="$([ "${IMGPROXY}" = true ] && echo imgproxy || echo imagemagick)"
+  previous="$(kubectl get namespace "${NAMESPACE}" -o json | jq -r '.metadata.annotations["typo3-kate/images"] // ""')"
+  if [ -n "${previous}" ] && [ "${previous}" != "${images}" ]; then
+    step "Images: ${previous} -> ${images}, processing them again"
+    reprocess_site
+  fi
+  kubectl annotate namespace "${NAMESPACE}" --overwrite typo3-kate/images="${images}" >/dev/null
 
   # summary
   echo >&2
@@ -1124,6 +1175,34 @@ cmd_status() {
   printf '%s\n' "${rows[@]}" | gum table --print --separator "," --columns "Site,Namespace,Domain,Release,Certificate,Pods"
 }
 
+# --- in-cluster DNS for imgproxy -------------------------------------------------------
+# A site's domain resolves to k3s' Traefik inside the cluster, so imgproxy
+# fetches originals through the site's own Gateway and certificate, without
+# going out to the router and back. k3s' CoreDNS imports every *.override key
+# of the ConfigMap kube-system/coredns-custom and reloads by itself.
+coredns_key() { echo "typo3-kate-$1.override"; }
+
+coredns_set() {   # <namespace> <domain>
+  local key rule
+  key="$(coredns_key "$1")"
+  rule="rewrite name exact $2 traefik.kube-system.svc.cluster.local"
+  if kubectl -n kube-system get configmap coredns-custom >/dev/null 2>&1; then
+    kubectl -n kube-system patch configmap coredns-custom --type merge \
+      -p "$(jq -nc --arg k "${key}" --arg v "${rule}" '{data: {($k): $v}}')" >/dev/null
+  else
+    kubectl -n kube-system create configmap coredns-custom --from-literal="${key}=${rule}" >/dev/null
+  fi
+}
+
+coredns_unset() {   # <namespace>
+  local key
+  key="$(coredns_key "$1")"
+  kubectl -n kube-system get configmap coredns-custom -o json 2>/dev/null \
+    | jq -e --arg k "${key}" '.data[$k] != null' >/dev/null 2>&1 || return 0
+  kubectl -n kube-system patch configmap coredns-custom --type json \
+    -p "$(jq -nc --arg k "${key}" '[{op: "remove", path: ("/data/" + $k)}]')" >/dev/null
+}
+
 # --- deployed sites ---------------------------------------------------------------------
 # deployed_sites: the sites the cluster knows (namespace annotation typo3-kate/project)
 deployed_sites() {
@@ -1191,6 +1270,50 @@ cmd_password() {
     # stdout, so ./kate password <site> | pbcopy also works
     echo "${password}"
   fi
+}
+
+# --- reprocess: a site's processed images, made again --------------------------------------
+# reprocess_site: in NAMESPACE (connected), delete the processed files of every
+# storage and flush the page cache; TYPO3 creates each image again on its next
+# request, with the image processing configured now.
+reprocess_site() {
+  local backend="deploy/${RELEASE}-backend"
+  if kubectl -n "${NAMESPACE}" exec "${backend}" -- vendor/bin/typo3 list --raw 2>/dev/null | grep -q '^kate:processed-files:reset '; then
+    wait_for "deleting the processed files of every storage" \
+      kubectl -n "${NAMESPACE}" exec "${backend}" -- vendor/bin/typo3 kate:processed-files:reset
+  else
+    # Without ochorocho/kate-imgproxy: EXT:lowlevel, local storages only
+    note "ochorocho/kate-imgproxy isn't installed: only storages with the Local driver (fileadmin) are reset, not S3"
+    wait_for "deleting the processed files of local storages" \
+      kubectl -n "${NAMESPACE}" exec "${backend}" -- vendor/bin/typo3 cleanup:localprocessedfiles --all --force \
+      || fail "neither kate:processed-files:reset nor cleanup:localprocessedfiles (EXT:lowlevel) is available in ${PROJECT}"
+  fi
+  # Cached pages would keep pointing to the deleted files
+  wait_for "flushing the page cache" kubectl -n "${NAMESPACE}" exec "${backend}" -- vendor/bin/typo3 cache:flush --group pages
+  note "Processed images reset: each is made again on its first request"
+}
+
+cmd_reprocess() {
+  local project="" arg
+  for arg in "$@"; do
+    case "${arg}" in
+      -*) fail "Usage: ./kate reprocess [<site>]" ;;
+      *) [ -z "${project}" ] || fail "one site at a time"; project="${arg}" ;;
+    esac
+  done
+  need kubectl jq yq tofu
+  connect
+  if [ -z "${project}" ]; then
+    local deployed
+    deployed="$(deployed_sites)"
+    [ -n "${deployed}" ] || fail "no deployed site found"
+    # shellcheck disable=SC2086 # one site per line
+    project="$(ask_choose "<site>" "Process the images of which site again?" ${deployed})"
+  fi
+  PROJECT="${project}"
+  site_namespace "${project}"
+  step "Processing the images of ${project} again"
+  reprocess_site
 }
 
 # --- logs: what a site's pods write ------------------------------------------------------
@@ -1355,8 +1478,10 @@ cmd_remove() {
   # Keep its certificate: deploying the site again then orders none
   local site_domain
   site_domain="$(kubectl get namespace "${NAMESPACE}" -o json | jq -r '.metadata.annotations["typo3-kate/domain"] // ""')"
-  # Its use of the wildcard certificate (which stays for the other sites)
+  # Its use of the wildcard certificate (which stays for the other sites), and
+  # its in-cluster DNS rule for imgproxy
   kubectl -n gateway-system delete referencegrant "site-${NAMESPACE}" --ignore-not-found >/dev/null
+  coredns_unset "${NAMESPACE}"
   if [ -n "${site_domain}" ] && kubectl -n "${NAMESPACE}" get secret site-tls >/dev/null 2>&1; then
     save_certificate "${NAMESPACE}" site-tls "${site_domain}"
     note "Certificate for ${site_domain} kept in ${CERT_DIR}"
@@ -1405,7 +1530,7 @@ _kate() {
     [ "${site}" = kate ] || deployable="${deployable} ${site}"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
-    words="deploy new status logs password certificates dns remove values manifests autocomplete help"
+    words="deploy new status logs password certificates reprocess dns remove values manifests autocomplete help"
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
@@ -1419,6 +1544,7 @@ _kate() {
           new) words="--domain --acme --namespace --php --node-ips --from" ;;
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
+          reprocess) words="${sites}" ;;
           dns) words="--ip --ttl --yes" ;;
           logs)
             # the site first, then the component
@@ -1454,6 +1580,7 @@ _kate() {
       'password:backend login of a site'
       'logs:what the pods of a site write'
       'certificates:the saved certificate copies'
+      'reprocess:make every processed image of a site again'
       'dns:the wildcard DNS record at Hetzner'
       'remove:remove a site from the cluster'
       'values:Helm values of a site (CI)'
@@ -1476,6 +1603,7 @@ _kate() {
     new) compadd -- --domain --acme --namespace --php --node-ips --from ;;
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
+    reprocess) compadd -a sites ;;
     dns) compadd -- --ip --ttl --yes ;;
     logs)
       if (( CURRENT == 3 )); then compadd -a sites
@@ -1530,13 +1658,13 @@ cmd_autocomplete() {
 }
 
 # --- main ------------------------------------------------------------------------------
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 command="${1:-}"
 [ $# -eq 0 ] || shift
 if [ -z "${command}" ]; then
   interactive || { usage; exit 1; }
-  command="$(gum choose --header "typo3-kate" deploy new status logs password certificates dns remove autocomplete help)"
+  command="$(gum choose --header "typo3-kate" deploy new status logs password certificates reprocess dns remove autocomplete help)"
 fi
 case "${command}" in
   deploy) cmd_deploy "$@" ;;
@@ -1546,6 +1674,7 @@ case "${command}" in
   password) cmd_password "$@" ;;
   logs) cmd_logs "$@" ;;
   certificates) cmd_certificates "$@" ;;
+  reprocess) cmd_reprocess "$@" ;;
   dns) cmd_dns "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;

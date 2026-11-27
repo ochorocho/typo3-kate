@@ -12,16 +12,17 @@
 # Build:   docker build -f docker/Dockerfile --build-arg PROJECT=kate --build-arg PHP_VERSION=8.5 -t registry.example.com/acme/kate:1.0.0 .
 # Deploy:  always by digest (registry.example.com/acme/typo3@sha256:...)
 
-# typo3-kate: the runtime base (FrankenPHP, PHP extensions, GraphicsMagick,
-# php.ini) is prebuilt per PHP version, see docker/base.Dockerfile. BASE_IMAGE
-# points elsewhere for a locally built base.
+# typo3-kate: the runtime base (FrankenPHP, PHP extensions, php.ini and, unless
+# BASE_VARIANT is -imgproxy, ImageMagick 7) is prebuilt per PHP version, see
+# docker/base.Dockerfile. BASE_IMAGE points elsewhere for a locally built base.
 ARG BASE_IMAGE=ghcr.io/ochorocho/typo3-kate-base
 ARG PHP_VERSION=8.5
+ARG BASE_VARIANT=
 
 ############################
 # Stage 1: runtime base     #
 ############################
-FROM ${BASE_IMAGE}:${PHP_VERSION} AS base
+FROM ${BASE_IMAGE}:${PHP_VERSION}${BASE_VARIANT} AS base
 
 ############################
 # Stage 2: build            #

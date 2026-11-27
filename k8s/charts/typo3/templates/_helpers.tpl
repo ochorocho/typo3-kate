@@ -118,6 +118,12 @@ app.kubernetes.io/component: {{ .component }}
 - name: MERCURE_JWT_ISSUER
   value: {{ include "typo3.mercureIssuer" . | quote }}
 {{- end }}
+{{- if .Values.imgproxy.enabled }}
+- name: TYPO3_IMGPROXY_URL
+  value: {{ printf "http://%s-imgproxy:%v" (include "typo3.fullname" .) .Values.service.port | quote }}
+- name: TYPO3_IMGPROXY_SOURCE_URL
+  value: {{ required "imgproxy.sourceUrl is required, e.g. https://www.example.com" .Values.imgproxy.sourceUrl | quote }}
+{{- end }}
 {{- range $key, $value := .Values.typo3.extraEnv }}
 - name: {{ $key }}
   value: {{ $value | quote }}

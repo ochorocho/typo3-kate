@@ -1,0 +1,10 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  Ochorocho\KateImgproxy\:
+    resource: '../Classes/*'
+    exclude:
+      - '../Classes/Configuration/MediaProcessingConfiguration.php'

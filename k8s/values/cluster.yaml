@@ -83,3 +83,20 @@ networkPolicy:
       ports:
         - protocol: TCP
           port: 3900
+
+# imgproxy, for sites with imgproxy.enabled in their kate.yaml (./kate deploy
+# switches it on and sets sourceUrl). A CoreDNS rule from ./kate deploy points
+# the site's domain at k3s' Traefik inside the cluster, so imgproxy fetches
+# originals through the site's own Gateway: allow exactly that.
+imgproxy:
+  sourceEgress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8443   # Traefik's websecure entrypoint (443 on the Service)

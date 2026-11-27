@@ -39,7 +39,7 @@ projects/<name>/
 ├── composer.json    the site's packages; path repository ../../packages/*
 ├── composer.lock
 ├── config/sites/    site configuration
-└── packages/        optional: packages of this site only
+└── packages/        optional: packages of this site only (add the path repository packages/* to composer.json)
 ```
 
 Only `projects/_example` (the template) and `projects/kate` are part of this repository. Every other folder in `projects/` is git-ignored, so your own sites stay local, for example as a git repository of their own cloned into `projects/<name>/`. `./kate deploy` doesn't care either way.
@@ -54,6 +54,7 @@ Shared by all sites, in the repository root: `packages/` (`k8s-health`, `k8s-sta
 | `acme.environment` | `staging` | `staging` (untrusted test certificates) or `production` |
 | `namespace` | the folder name | Kubernetes namespace of the site |
 | `nodeIPs` | `false` | also answer on `https://<node-ip>/` with the cluster CA. Only one site can |
+| `imgproxy.enabled` | `false` | process images with [imgproxy](#images-imagemagick-or-imgproxy) instead of ImageMagick |
 | `php` | `8.5` | PHP version, `8.5` or `8.4` (those have a [prebuilt base image](#the-image)); the site's composer packages must allow it |
 | `admin.username` | `admin` | backend user that the first install creates; changing it later has no effect on an installed site |
 | `admin.email` | `admin@typo3-kate.local` | that user's email address |
@@ -128,16 +129,50 @@ Running it again is safe: Secrets, the database and the pages are left as they a
 
 ### The image
 
-Every site's image starts from a prebuilt runtime base: FrankenPHP with the PHP extensions TYPO3 needs (intl, gd, mysqli, pdo_mysql, zip, exif, opcache, redis), GraphicsMagick, Ghostscript and the production `php.ini` (`docker/base.Dockerfile`). It is published for PHP 8.5 and 8.4, for amd64 and arm64:
+Every site's image starts from a prebuilt runtime base: FrankenPHP with the PHP extensions TYPO3 needs (intl, gd, mysqli, pdo_mysql, zip, exif, opcache, redis) and the production `php.ini`, on Debian 13 (`docker/base.Dockerfile`). It is published for PHP 8.5 and 8.4, for amd64 and arm64, in two variants:
 
 ```
-ghcr.io/ochorocho/typo3-kate-base:8.5     ghcr.io/ochorocho/typo3-kate-base:8.4
-ghcr.io/ochorocho/typo3-kate-base:8.5-<yyyymmdd>   (each build, to go back to)
+ghcr.io/ochorocho/typo3-kate-base:8.5            ImageMagick 7 and Ghostscript
+ghcr.io/ochorocho/typo3-kate-base:8.5-imgproxy   no image tools, for sites with imgproxy
+ghcr.io/ochorocho/typo3-kate-base:8.4            (and :8.4-imgproxy)
+ghcr.io/ochorocho/typo3-kate-base:8.5-<yyyymmdd> (each build, to go back to)
 ```
 
-So a deploy only adds the site's composer packages and code; nothing is compiled on the Odroid. The workflow `.github/workflows/base-image.yml` builds it on every change to the base and weekly without cache, for security updates; CI builds and checks both versions first. A site picks its version with `php:` in its `kate.yaml` (default 8.5), and its composer packages must allow it: TYPO3 v15 (`dev-main`, the kate site) needs 8.5, v14 also runs on 8.4.
+So a deploy only adds the site's composer packages and code; nothing is compiled on the Odroid. The workflow `.github/workflows/base-image.yml` builds it on every change to the base and weekly without cache, for security updates; CI builds and checks every version and variant first. A site picks its version with `php:` in its `kate.yaml` (default 8.5), and its composer packages must allow it: TYPO3 v15 (`dev-main`, the kate site) needs 8.5, v14 also runs on 8.4. The variant follows `imgproxy.enabled`.
 
-A base built locally instead (offline, or to try a change): `docker build -f docker/base.Dockerfile --build-arg PHP_VERSION=8.5 -t <registry>/typo3-kate-base:8.5 .`, pushed where your build can pull it, then `BASE_IMAGE=<registry>/typo3-kate-base ./kate deploy <site>`.
+A base built locally instead (offline, or to try a change): `docker build -f docker/base.Dockerfile --build-arg PHP_VERSION=8.5 -t <registry>/typo3-kate-base:8.5 .` (add `--build-arg IMAGE_TOOLS=none` and tag `:8.5-imgproxy` for the other variant), pushed where your build can pull it, then `BASE_IMAGE=<registry>/typo3-kate-base ./kate deploy <site>`.
+
+### Images: ImageMagick or imgproxy
+
+By default TYPO3 processes images itself with ImageMagick 7. With `imgproxy.enabled: true` in a site's `kate.yaml`, [imgproxy](https://github.com/imgproxy/imgproxy) does it instead, through [EXT:media_processing](https://github.com/somehow-digital/typo3-media-processing):
+
+```sh
+cd projects/shop && composer require ochorocho/kate-imgproxy:@dev   # once: EXT:media_processing + the glue
+# projects/shop/kate.yaml:  imgproxy: { enabled: true }   (the site needs a domain)
+./kate deploy shop
+```
+
+What changes for that site:
+
+- its image builds on the `-imgproxy` base, without ImageMagick; TYPO3's own image processor is switched off
+- an imgproxy Deployment and Service run in its namespace, internal only; NetworkPolicies let only the TYPO3 pods use it, and imgproxy only reach Traefik
+- imgproxy fetches the originals through the site's own domain, so `fileadmin` and the S3 storage both work. A CoreDNS rule (`kube-system/coredns-custom`, key `typo3-kate-<namespace>.override`) resolves the domain to Traefik inside the cluster, instead of out to the router and back; imgproxy accepts only URLs below the site's URL. With a Let's Encrypt staging certificate it skips the certificate check
+- TYPO3 stores each result in `_processed_` and serves it from there. EXT:media_processing would hand browsers the internal imgproxy URL; `packages/imgproxy` (`ochorocho/kate-imgproxy`) configures the extension from the environment and serves the stored file instead
+- URLs are signed: `IMGPROXY_KEY` and `IMGPROXY_SALT` in the site's `typo3-env`, created by `./kate deploy`
+
+`./kate deploy` refuses imgproxy for a site without a domain or without `ochorocho/kate-imgproxy` in its `composer.lock`. Switching it off again removes the CoreDNS rule; TYPO3 then processes images itself again. Keep the package installed when you switch off: without `TYPO3_IMGPROXY_URL` it does nothing, and the switch back needs its command (below).
+
+**Switching makes the images again.** TYPO3 only processes an image when its processed file is missing, so the ones made the old way would stay in use. `./kate deploy` records the way in the namespace annotation `typo3-kate/images` (`imagemagick` or `imgproxy`); when it changes, it runs `./kate reprocess` after the new pods are up. That deletes the processed files of every storage, `fileadmin` and S3, through each storage's own driver (`vendor/bin/typo3 kate:processed-files:reset` from `ochorocho/kate-imgproxy`), and flushes the page cache, so cached pages don't point to deleted files. Each image is then made again on its first request, so the first visits are slower. Run it by hand any time:
+
+```sh
+./kate reprocess shop
+```
+
+Without the package it falls back to `cleanup:localprocessedfiles --all` (EXT:lowlevel), which covers only storages with the Local driver, not S3.
+
+::: warning TYPO3 v15
+EXT:media_processing 1.0 needs Symfony 7, TYPO3 v15 (`dev-main`) is on Symfony 8: it installs on TYPO3 v14 sites only until [upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41) is resolved. The kate site (v15) keeps ImageMagick.
+:::
 
 ::: tip macOS: kubectl blocked
 If macOS blocks `kubectl` from reaching the VMs (see [Troubleshooting](./troubleshooting#no-route-to-host-from-kubectl-or-the-browser-while-ssh-and-ping-work)), the script switches to an SSH tunnel to the master by itself, on the first free local port from 16443 to 16463, so several deploys can run at the same time.

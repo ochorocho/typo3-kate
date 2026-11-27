@@ -7,10 +7,6 @@
         {
             "type": "path",
             "url": "../../packages/*"
-        },
-        {
-            "type": "path",
-            "url": "packages/*"
         }
     ],
     "require": {
