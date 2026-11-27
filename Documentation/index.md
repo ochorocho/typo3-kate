@@ -21,6 +21,6 @@ features:
   - title: TYPO3 included
     details: The production image and Helm chart from Benni Mack's typo3-k8s-starter, with MariaDB, Valkey and shared NFS storage in the cluster. One script deploys it.
     link: /guide/typo3
-  - title: Two hosts, one config
-    details: KVM on the Odroid H2 (x86_64) and QEMU with Apple's Hypervisor.framework on Apple Silicon (arm64). One settings file per host.
+  - title: Three hosts, one config
+    details: KVM on the Odroid H2 (x86_64), QEMU with Apple's Hypervisor.framework on Apple Silicon (arm64), and a prepared Raspberry Pi 5 setup (arm64, KVM). One settings file per host.
 ---

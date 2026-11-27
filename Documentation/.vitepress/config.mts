@@ -21,6 +21,7 @@ export default defineConfig({
           { text: 'Getting started', link: '/guide/getting-started' },
           { text: 'macOS host', link: '/guide/macos' },
           { text: 'Odroid H2 host', link: '/guide/odroid' },
+          { text: 'Raspberry Pi 5 host', link: '/guide/raspberry-pi5' },
           { text: 'Dashboard & kubectl', link: '/guide/dashboard' },
           { text: 'TYPO3 on the cluster', link: '/guide/typo3' },
           { text: "Public domain & Let's Encrypt", link: '/guide/public-access' },

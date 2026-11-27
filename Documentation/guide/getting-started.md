@@ -16,6 +16,7 @@ Follow the page for your machine once:
 
 - [macOS host](./macos): Apple Silicon Mac
 - [Odroid H2 host](./odroid): x86_64 Linux with KVM
+- [Raspberry Pi 5 host](./raspberry-pi5): arm64 Linux with KVM (prepared, untested)
 
 ## 2. Create the cluster
 

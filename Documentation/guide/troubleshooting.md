@@ -184,3 +184,7 @@ kubectl -n typo3 exec garage-0 -- /garage bucket info media
 | storage still offline after the variables are there | the frontend/backend pods started before the change: `kubectl -n typo3 rollout restart deploy/typo3-backend deploy/typo3-frontend` |
 | timeouts to `garage:3900` | the NetworkPolicy `typo3-to-garage` is missing: `kubectl -n typo3 get networkpolicy` |
 | images in the page don't load (404) | `/media/` route or website mode: `kubectl -n typo3 get httproute media`, `… /garage bucket website --allow media` |
+
+## Raspberry Pi 5: VMs don't start
+
+See the table on the [Raspberry Pi 5 page](./raspberry-pi5#if-the-vms-don-t-start). The two Pi-specific causes are a 16K-page host kernel (`getconf PAGESIZE` must print `4096`) and a GICv3 request (the Pi only has GICv2; leave `gic_version` unset).

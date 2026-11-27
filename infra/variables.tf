@@ -135,15 +135,26 @@ variable "socket_vmnet_path" {
 }
 
 variable "uefi_firmware" {
-  description = "UEFI code image, needed for aarch64 guests."
+  description = "UEFI code image for aarch64 guests. Defaults to Homebrew's edk2 on macOS and /usr/share/AAVMF/AAVMF_CODE.fd (package qemu-efi-aarch64) on Linux."
   type        = string
-  default     = "/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
+  default     = null
 }
 
 variable "uefi_vars_template" {
-  description = "UEFI variable store template, needed for aarch64 guests."
+  description = "UEFI variable store template for aarch64 guests. Defaults to Homebrew's edk2 on macOS and /usr/share/AAVMF/AAVMF_VARS.fd on Linux."
   type        = string
-  default     = "/opt/homebrew/share/qemu/edk2-arm-vars.fd"
+  default     = null
+}
+
+variable "gic_version" {
+  description = "Interrupt controller of aarch64 guests: 2, 3 or host. Defaults to 3 on macOS (Hypervisor.framework only emulates GICv3) and host on Linux (the Raspberry Pi 5 has a GICv2)."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.gic_version == null || contains(["2", "3", "host"], coalesce(var.gic_version, "host"))
+    error_message = "gic_version must be 2, 3 or host."
+  }
 }
 
 variable "ssh_public_key_path" {

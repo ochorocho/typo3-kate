@@ -10,8 +10,9 @@ All variables are defined in `infra/variables.tf`. Set them in `macos.tfvars`, `
 | `arch` | `"x86_64"` | Guest architecture, must match the host: `x86_64` or `aarch64` |
 | `libvirt_uri` | `null` | Defaults to `qemu:///system` on Linux and the session socket on macOS. Use `qemu+ssh://user@host/system` for a remote host |
 | `pool_path` | `null` | Storage directory. Defaults to `/var/lib/libvirt/images/<cluster>` (Linux) or `~/.local/share/libvirt/images/<cluster>` (macOS) |
-| `uefi_firmware` | `/opt/homebrew/share/qemu/edk2-aarch64-code.fd` | UEFI code image, only used for aarch64 |
-| `uefi_vars_template` | `/opt/homebrew/share/qemu/edk2-arm-vars.fd` | UEFI variable template, only used for aarch64 |
+| `uefi_firmware` | `null` | UEFI code image for aarch64 guests. Default: Homebrew's `edk2-aarch64-code.fd` on macOS, `/usr/share/AAVMF/AAVMF_CODE.fd` on Linux |
+| `uefi_vars_template` | `null` | UEFI variable template for aarch64 guests. Default: Homebrew's `edk2-arm-vars.fd` on macOS, `/usr/share/AAVMF/AAVMF_VARS.fd` on Linux |
+| `gic_version` | `null` | Interrupt controller of aarch64 guests: `2`, `3` or `host`. Default: `3` on macOS (HVF only emulates GICv3), `host` on Linux (GICv2 on a Raspberry Pi 5) |
 
 ## Cluster
 

@@ -5,7 +5,7 @@
 
 A 3-node Kubernetes cluster on your own machine, running TYPO3 v15.
 
-- **`infra/`**: OpenTofu creates three Ubuntu VMs on libvirt (1 master, 2 workers) and installs k3s, the Headlamp dashboard, an image registry, shared NFS storage, Gateway API routing and the MariaDB operator. Works on an Apple Silicon Mac (QEMU + Hypervisor.framework) and on an Odroid H2 (KVM).
+- **`infra/`**: OpenTofu creates three Ubuntu VMs on libvirt (1 master, 2 workers) and installs k3s, the Headlamp dashboard, an image registry, shared NFS storage, Gateway API routing and the MariaDB operator. Works on an Apple Silicon Mac (QEMU + Hypervisor.framework) and on an Odroid H2 (KVM); a Raspberry Pi 5 configuration is prepared but not yet tested on hardware.
 - **TYPO3:** the production image, Helm chart and configuration from [Benni Mack's typo3-k8s-starter](https://github.com/bmack/typo3-k8s-starter), deployed with MariaDB, Valkey, S3 (Garage) and shared storage inside the cluster.
 
 📖 **Documentation:** https://ochorocho.github.io/typo3-kate/
@@ -74,6 +74,10 @@ cd infra && tofu init && tofu apply -var-file=odroid.tfvars && cd ..
 ```
 
 The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach it from other machines, put the VMs on your LAN: see [Odroid H2 host](https://ochorocho.github.io/typo3-kate/guide/odroid).
+
+## Raspberry Pi 5 (prepared, untested)
+
+`infra/raspberrypi5.tfvars` targets an 8 GB Pi 5 with Ubuntu Server: KVM guests with GICv2 (the Pi's interrupt controller) and UEFI from `qemu-efi-aarch64`. The host needs a 4K-page kernel. See [Raspberry Pi 5 host](https://ochorocho.github.io/typo3-kate/guide/raspberry-pi5).
 
 ## Everyday commands
 

@@ -13,6 +13,16 @@ locals {
   )
 
   image_arch = local.is_aarch64 ? "arm64" : "amd64"
+
+  # aarch64 guests boot UEFI and need an interrupt controller the host can
+  # provide: HVF only emulates GICv3, KVM on a Raspberry Pi 5 only has GICv2.
+  uefi_firmware = coalesce(var.uefi_firmware,
+    local.is_macos ? "/opt/homebrew/share/qemu/edk2-aarch64-code.fd" : "/usr/share/AAVMF/AAVMF_CODE.fd"
+  )
+  uefi_vars_template = coalesce(var.uefi_vars_template,
+    local.is_macos ? "/opt/homebrew/share/qemu/edk2-arm-vars.fd" : "/usr/share/AAVMF/AAVMF_VARS.fd"
+  )
+  gic_version = coalesce(var.gic_version, local.is_macos ? "3" : "host")
   image_source = coalesce(
     var.ubuntu_image,
     "https://cloud-images.ubuntu.com/${var.ubuntu_release}/current/${var.ubuntu_release}-server-cloudimg-${local.image_arch}.img"
@@ -236,13 +246,13 @@ resource "libvirt_domain" "node" {
   autostart = true
   running   = true
 
-  firmware = local.is_aarch64 ? var.uefi_firmware : null
+  firmware = local.is_aarch64 ? local.uefi_firmware : null
 
   dynamic "nvram" {
     for_each = local.is_aarch64 ? [1] : []
     content {
       file     = "${local.pool_path}/${each.key}_VARS.fd"
-      template = var.uefi_vars_template
+      template = local.uefi_vars_template
     }
   }
 
@@ -285,6 +295,7 @@ resource "libvirt_domain" "node" {
     content {
       xslt = templatefile("${path.module}/templates/domain.xsl.tftpl", {
         aarch64           = local.is_aarch64
+        gic_version       = local.gic_version
         socket_vmnet_path = var.network_mode == "socket_vmnet" ? var.socket_vmnet_path : ""
         mac               = each.value.mac
       })

@@ -17,11 +17,12 @@
     <target dev="sda" bus="scsi"/>
   </xsl:template>
 
-  <!-- Drop x86-only features the provider adds; HVF only emulates GICv3. -->
+  <!-- Drop x86-only features the provider adds; set the interrupt controller
+       (3 for macOS/HVF, host = GICv2 on a Raspberry Pi 5). -->
   <xsl:template match="/domain/features">
     <features>
       <xsl:apply-templates select="*[not(self::pae or self::apic or self::gic)]"/>
-      <gic version="3"/>
+      <gic version="${gic_version}"/>
     </features>
   </xsl:template>
 %{ endif ~}
