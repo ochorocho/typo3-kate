@@ -2,7 +2,7 @@ locals {
   # ../kate.yaml (git-ignored, see kate.example.yaml): cluster-wide settings,
   # e.g. the ACME contact and token. They win over the tfvars and TF_VAR_*
   # variables. A missing file is fine, a broken one fails the run. Domains
-  # are per project: projects/<name>/kate.yaml, used by k8s/deploy.sh.
+  # are per project: projects/<name>/kate.yaml, used by ./kate deploy.
   kate_file = "${path.module}/../kate.yaml"
   kate      = fileexists(local.kate_file) ? yamldecode(file(local.kate_file)) : null
 
@@ -21,6 +21,6 @@ locals {
 check "kate_yaml_per_project_settings" {
   assert {
     condition     = try(local.kate.domain, null) == null && try(local.kate.acme.environment, null) == null
-    error_message = "domain and acme.environment in kate.yaml are ignored now: each site sets them in projects/<name>/kate.yaml (k8s/deploy.sh). Remove them from kate.yaml."
+    error_message = "domain and acme.environment in kate.yaml are ignored now: each site sets them in projects/<name>/kate.yaml (./kate deploy). Remove them from kate.yaml."
   }
 }

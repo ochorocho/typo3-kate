@@ -83,7 +83,7 @@ They are deliberately **not** part of cloud-init: a change to cloud-init rebuild
 | `cert-manager.yaml` | cert-manager, Hetzner DNS webhook |
 | `acme.yaml` | only while `acme:` is in `../kate.yaml` (or a token is passed): token Secret, Let's Encrypt ClusterIssuers |
 
-Per-site objects are not here: `k8s/deploy.sh` creates them in each site's namespace (see below).
+Per-site objects are not here: `./kate deploy` creates them in each site's namespace (see below).
 
 ## Sites and routing
 
@@ -101,11 +101,11 @@ browser ──:80───▶ public-gateway http ─▶ redirect to https
 |---|---|---|
 | Gateway `public-gateway`, GatewayClass `traefik`, Secret `gateway-tls` | `gateway-system` | `infra/` |
 | ClusterIssuers `letsencrypt`, `letsencrypt-staging`, Secret `hetzner` | cluster / `cert-manager` | `infra/`, while `acme:` is set |
-| Gateway `site`, Certificate `site` (Secret `site-tls`) | the site's | `k8s/project-manifests.sh`, only with a `domain` |
-| HTTPRoute `media` | the site's | `k8s/project-manifests.sh` |
-| HTTPRoute `typo3` | the site's | the chart; `parentRefs`, `hostnames` from `k8s/site-values.sh` |
+| Gateway `site`, Certificate `site` (Secret `site-tls`) | the site's | `./kate manifests`, only with a `domain` |
+| HTTPRoute `media` | the site's | `./kate manifests` |
+| HTTPRoute `typo3` | the site's | the chart; `parentRefs`, `hostnames` from `./kate values` |
 
-A site with a domain attaches its routes to its Gateway `site` with that hostname. The node-IP site (`nodeIPs: true`, or no domain) also attaches to `public-gateway`, without a hostname. Its namespace carries the label `gateway-access: public`, and only one site may have it. Each namespace records its site in the annotations `typo3-kate/project` and `typo3-kate/domain`, which `k8s/deploy.sh` checks before it deploys.
+A site with a domain attaches its routes to its Gateway `site` with that hostname. The node-IP site (`nodeIPs: true`, or no domain) also attaches to `public-gateway`, without a hostname. Its namespace carries the label `gateway-access: public`, and only one site may have it. Each namespace records its site in the annotations `typo3-kate/project` and `typo3-kate/domain`, which `./kate deploy` checks before it deploys.
 
 ## Dashboard
 

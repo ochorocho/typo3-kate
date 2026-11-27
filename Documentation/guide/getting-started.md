@@ -33,7 +33,7 @@ cp kate.example.yaml kate.yaml && chmod 600 kate.yaml
 |---|---|---|
 | `acme` (`email`, `hetznerDnsToken`) | OpenTofu (`infra/`) | Let's Encrypt issuers for every site's certificate; win over the `*.tfvars` and `TF_VAR_*` |
 | `ssh.authorizedKeys` | OpenTofu (`infra/`) | more public keys for `ssh ubuntu@<node>` |
-| `helm` | `k8s/deploy.sh` | any value of `k8s/charts/typo3`, for every site, applied after `k8s/values/cluster.yaml` |
+| `helm` | `./kate deploy` | any value of `k8s/charts/typo3`, for every site, applied after `k8s/values/cluster.yaml` |
 
 `domain` and `acme.environment` in the root `kate.yaml` are ignored now (`tofu` warns): each site sets them in its own `projects/<name>/kate.yaml`.
 
@@ -68,7 +68,7 @@ tofu output dashboard_url                     # http://<master-ip>:30080
 $(tofu output -raw dashboard_token_command)   # paste the token into Headlamp
 ```
 
-More on this in [Dashboard & kubectl](./dashboard). Then deploy a site from the repository root, `k8s/deploy.sh kate`: see [TYPO3 on the cluster](./typo3#deploy).
+More on this in [Dashboard & kubectl](./dashboard). Then deploy a site from the repository root, `./kate deploy kate`: see [TYPO3 on the cluster](./typo3#deploy).
 
 ## 4. Remove it
 

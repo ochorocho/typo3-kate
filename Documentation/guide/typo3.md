@@ -42,7 +42,7 @@ projects/<name>/
 └── packages/        optional: packages of this site only
 ```
 
-Only `projects/_example` (the template) and `projects/kate` are part of this repository. Every other folder in `projects/` is git-ignored, so your own sites stay local, for example as a git repository of their own cloned into `projects/<name>/`. `k8s/deploy.sh` doesn't care either way.
+Only `projects/_example` (the template) and `projects/kate` are part of this repository. Every other folder in `projects/` is git-ignored, so your own sites stay local, for example as a git repository of their own cloned into `projects/<name>/`. `./kate deploy` doesn't care either way.
 
 Shared by all sites, in the repository root: `packages/` (`k8s-health`, `k8s-starter`), `config/system/` (the cluster glue: all configuration from environment variables; a site must not have its own, the image build refuses it), `docker/`, `k8s/` and `infra/`.
 
@@ -61,13 +61,11 @@ Shared by all sites, in the repository root: `packages/` (`k8s-health`, `k8s-sta
 ### A new site
 
 ```sh
-mkdir projects/shop
-cp projects/_example/kate.yaml projects/shop/      # set domain, acme.environment, helm:
-cp projects/kate/composer.json projects/shop/      # or your own, keep the ../../packages/* repository
-cp -r projects/kate/config projects/shop/          # config/sites/ (base "/" works for any host)
-(cd projects/shop && composer update)              # writes composer.lock
-k8s/deploy.sh shop
+./kate new shop --domain shop.example.com --acme staging   # or just ./kate new: it asks
+./kate deploy shop
 ```
+
+`./kate new` copies `composer.json`, `composer.lock` and `config/sites/` from an existing site (`--from <site>`, asked for when there are several) and writes `projects/shop/kate.yaml` from the template with the domain, the Let's Encrypt environment and, if it differs from the name, the namespace. `--node-ips` lets the site answer on the node IPs instead; without a domain it always does. Edit `composer.json` and the `helm:` section afterwards as needed (`composer update` in the folder rewrites the lock file).
 
 The domain needs an A record pointing at your public IP and must be in a Hetzner DNS zone the token may edit (see [Public domain & Let's Encrypt](./public-access#another-site)). Folders starting with `_` (like `_example`) are templates and are skipped by `--all`. Check the memory first: [Odroid H2 host](./odroid#several-sites).
 
@@ -83,19 +81,24 @@ composer update typo3/cms-core
 
 ## Deploy
 
-Requirements: a cluster from `infra/` (`tofu apply`), plus `docker`, `kubectl`, `helm`, `jq`, `yq`, `openssl` and `tofu` on your machine.
+Requirements: a cluster from `infra/` (`tofu apply`), plus [`gum`](https://github.com/charmbracelet/gum), `docker`, `kubectl`, `helm`, `jq`, `yq`, `openssl` and `tofu` on your machine.
 
 ```sh
-./k8s/deploy.sh kate          # one site
-./k8s/deploy.sh --all         # every site in projects/, one after the other
+./kate                      # menu: deploy, new, status, remove
+./kate deploy               # asks which site, whether to build, then shows a summary to confirm
+./kate deploy kate          # one site, no questions
+./kate deploy --all         # every site in projects/, one after the other
+./kate status               # every site: namespace, domain, release, certificate, pods
 ```
+
+`./kate` asks only for what is missing on the command line. With every argument given it asks nothing, so it works in scripts and CI; without a terminal a missing argument is an error that names it.
 
 The script:
 
 1. refuses to start when the namespace belongs to another site, when the domain is already another site's, or when a second site would answer on the node IPs (a site without a domain always does)
 2. builds `docker/Dockerfile` with `--build-arg PROJECT=<name>` for the nodes' architecture and pushes it to the cluster registry as `<master-ip>:30500/<name>`. The release then uses the image's **digest**, not a tag.
 3. creates the site's namespace and, the first time only, the Secrets with random passwords
-4. with a domain: applies the site's Gateway `site`, Certificate `site` and the `/media/` route (`k8s/project-manifests.sh`) and waits for the certificate
+4. with a domain: applies the site's Gateway `site`, Certificate `site` and the `/media/` route (`./kate manifests`) and waits for the certificate
 5. applies `k8s/platform/` (MariaDB, two Valkey instances, Garage, two RWX volumes) and waits until they are ready
 6. **empty database only:** runs `typo3 setup` in a one-off pod (schema and admin user), then imports the root page, About and Contact (`k8s/bootstrap.sql`)
 7. runs `helm upgrade --install` (release `typo3` in every namespace) with `k8s/charts/typo3`. Before the new pods start, the chart's migrations Job runs `extension:setup`, `upgrade:run` and `cache:flush --group pages`.
@@ -104,13 +107,13 @@ Helm values, the last one wins:
 
 1. `k8s/values/cluster.yaml`
 2. `helm:` in the root `kate.yaml` (every site)
-3. what `k8s/site-values.sh` derives from the domain: media and Mercure URLs, where the HTTPRoute attaches, its hostnames
+3. what `./kate values` derives from the domain: media and Mercure URLs, where the HTTPRoute attaches, its hostnames
 4. `helm:` in `projects/<name>/kate.yaml`
 
 Running it again is safe: Secrets, the database and the pages are left as they are, and the new image rolls out without downtime.
 
 ```sh
-./k8s/deploy.sh kate --no-build    # re-apply values/chart with the deployed image
+./kate deploy kate --no-build    # re-apply values/chart with the deployed image
 ```
 
 ::: tip macOS: kubectl blocked
@@ -165,7 +168,7 @@ Usage from PHP and Fluid: [the extension's README](https://github.com/ochorocho/
 
 Storage 2 in `config/system/file-storages.yaml` uses the S3 driver (b13/typo3-s3-driver) with **Garage** in the cluster, as Benni's starter does in DDEV. TYPO3 writes over the S3 API (`http://garage:3900`, bucket `media`, prefix `typo3`). Browsers load the files anonymously from `https://kate.ochorocho.dev/media/typo3/…`: the site's HTTPRoute `media` sends `/media/` to Garage's web endpoint. Every site has its own Garage.
 
-The access key is generated once by `k8s/deploy.sh` (Secret `typo3-garage`) and also written to `typo3-env` as `TYPO3_S3_KEY` / `TYPO3_S3_SECRET`. Garage sets up its layout, the bucket and the key by itself (`--single-node --default-bucket`).
+The access key is generated once by `./kate deploy` (Secret `typo3-garage`) and also written to `typo3-env` as `TYPO3_S3_KEY` / `TYPO3_S3_SECRET`. Garage sets up its layout, the bucket and the key by itself (`--single-node --default-bucket`).
 
 ```sh
 kubectl -n typo3 exec garage-0 -- /garage bucket info media    # size, objects, keys
@@ -199,7 +202,7 @@ Garage runs as a single node on one local-path volume: no replication, and the d
 Change code, templates or `projects/<name>/composer.lock`, then deploy:
 
 ```sh
-./k8s/deploy.sh kate
+./kate deploy kate
 kubectl -n typo3 rollout status deploy/typo3-frontend
 ```
 
@@ -243,7 +246,7 @@ The frontend scales between 2 and 4 pods with CPU load (`frontend.autoscaling` i
 This deletes the site, the database and all uploaded files:
 
 ```sh
-k8s/remove.sh kate
+./kate remove kate
 ```
 
-See [Remove a site](./operations#remove-a-site). The NFS volumes use `reclaimPolicy: Retain`, so their files stay in `/srv/nfs` on the master until you delete them there. The next `./k8s/deploy.sh kate` installs a fresh site.
+See [Remove a site](./operations#remove-a-site). The NFS volumes use `reclaimPolicy: Retain`, so their files stay in `/srv/nfs` on the master until you delete them there. The next `./kate deploy kate` installs a fresh site.

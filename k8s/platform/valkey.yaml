@@ -1,5 +1,5 @@
 # From bmack/typo3-k8s-starter examples/valkey/valkey.yaml (MIT).
-# typo3-kate: names typo3-*, cache 256 MB, Secret typo3-valkey created by k8s/deploy.sh.
+# typo3-kate: names typo3-*, cache 256 MB, Secret typo3-valkey created by ./kate deploy.
 # Two Valkey instances with different jobs (plain manifests, no chart needed):
 #
 #  typo3-valkey        sessions, install tool sessions, locks

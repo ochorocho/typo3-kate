@@ -7,7 +7,7 @@
 #
 # --single-node --default-bucket (Garage >= 2.3) sets up the layout, the bucket
 # and the access key from GARAGE_DEFAULT_* on start, so no manual CLI setup.
-# Secret typo3-garage is created by k8s/deploy.sh. Not replicated: the data
+# Secret typo3-garage is created by ./kate deploy. Not replicated: the data
 # lives on one local-path volume.
 apiVersion: v1
 kind: ConfigMap
@@ -149,4 +149,4 @@ spec:
 # TYPO3 reaches Garage's S3 API through the chart's NetworkPolicy
 # (networkPolicy.extraEgress in k8s/values/cluster.yaml): a separate policy
 # here would cut the release's first migrations Job off from DNS.
-# The route https://<site>/media/ -> Garage is per project: k8s/project-manifests.sh
+# The route https://<site>/media/ -> Garage is per project: ./kate manifests

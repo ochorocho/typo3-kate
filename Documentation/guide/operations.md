@@ -89,11 +89,11 @@ Upgrade the master first. The settings are kept in `/etc/rancher/k3s/config.yaml
 From the repository root:
 
 ```sh
-k8s/remove.sh shop          # asks you to type the name; --yes skips that
+./kate remove shop          # asks you to type the name; --yes skips that
 ```
 
-It uninstalls the site's Helm release, deletes its namespace (database, Valkey, Garage, Gateway, certificate, Secrets) and the NFS PersistentVolumes the namespace leaves behind. It only removes a namespace that `k8s/deploy.sh` marked as this site's. Left to you:
+It uninstalls the site's Helm release, deletes its namespace (database, Valkey, Garage, Gateway, certificate, Secrets) and the NFS PersistentVolumes the namespace leaves behind. It only removes a namespace that `./kate deploy` marked as this site's. Left to you:
 
 - the files on the NFS server: `reclaimPolicy: Retain` keeps them under `/srv/nfs/<pv>` on the master; the script lists the volumes. Delete them by hand once you no longer need `fileadmin`
 - the site's DNS record (and router forwarding, if nothing else uses it)
-- the folder `projects/<name>/`, if the site is gone for good (otherwise `k8s/deploy.sh --all` deploys it again)
+- the folder `projects/<name>/`, if the site is gone for good (otherwise `./kate deploy --all` deploys it again)

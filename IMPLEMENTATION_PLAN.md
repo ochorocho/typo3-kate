@@ -6,14 +6,14 @@
 **Tests**: CI image job with PROJECT=kate; composer validate per project.
 **Status**: Complete
 
-## Stage 2: deploy.sh <project>
-**Goal**: deploy.sh reads projects/<p>/kate.yaml (namespace, domain, acme, nodeIPs); image per project; hostnames/parentRefs from site-values.sh; tunnel port range; guards.
+## Stage 2: ./kate deploy <project>
+**Goal**: ./kate deploy reads projects/<p>/kate.yaml (namespace, domain, acme, nodeIPs); image per project; hostnames/parentRefs from ./kate values; tunnel port range; guards.
 **Success Criteria**: helm template for kate equals today's routes plus the new parentRef.
 **Tests**: helm template per project, shellcheck.
 **Status**: Complete
 
 ## Stage 3: Per-project Gateway, Certificate and media route
-**Goal**: k8s/project-manifests.sh renders Gateway site, Certificate site, HTTPRoute media per namespace; deploy.sh applies and waits.
+**Goal**: ./kate manifests renders Gateway site, Certificate site, HTTPRoute media per namespace; ./kate deploy applies and waits.
 **Success Criteria**: gateway/site Programmed, certificate/site Ready; kate unchanged.
 **Tests**: kubeconform on rendered manifests; live checks on the Odroid.
 **Status**: Complete in code; live check on the Odroid pending
@@ -22,7 +22,7 @@
 **Goal**: no https-domain listener or Certificate site in infra; ACME issuers only need the token.
 **Success Criteria**: tofu validate; public-gateway lists http/https only; kate still served.
 **Tests**: tofu fmt/validate, live checks.
-**Status**: Complete in code; tofu apply on the Odroid pending (after deploy.sh kate)
+**Status**: Complete in code; tofu apply on the Odroid pending (after ./kate deploy kate)
 
 ## Stage 5: Second project, removal, docs
 **Goal**: projects/_example, removal procedure, capacity note, docs updated.

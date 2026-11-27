@@ -27,10 +27,18 @@ jobs:
             composer validate --no-check-publish --no-check-all "${file}"
           done
       - name: Shell scripts
-        run: shellcheck -x k8s/*.sh infra/scripts/*.sh
+        run: shellcheck -x kate infra/scripts/*.sh
+      - name: gum (for ./kate)
+        run: |
+          version=2.0.2
+          archive="gum_${version}_Linux_x86_64.tar.gz"
+          curl -fsSLO "https://github.com/charmbracelet/gum/releases/download/v${version}/${archive}"
+          echo "d842e06d93dbed90af48cb8dd10698db6f22e331fc40346bb37bbc753109edc2  ${archive}" | sha256sum -c -
+          tar xzf "${archive}"
+          sudo install "gum_${version}_Linux_x86_64/gum" /usr/local/bin/gum
       - uses: azure/setup-helm@v4
       - name: Helm chart
-        # The same values as k8s/deploy.sh, for every project: cluster.yaml,
+        # The same values as ./kate deploy, for every project: cluster.yaml,
         # the template's cluster-wide helm:, the site's URLs and routes, then
         # the project's helm:
         run: |
@@ -41,7 +49,7 @@ jobs:
             args=("https://${domain:-192.0.2.1}")
             [ -z "${domain}" ] || args+=(--hostname "${domain}")
             [ "$(yq -r '.nodeIPs // false' "${file}")" = false ] || args+=(--node-ips)
-            k8s/site-values.sh "${args[@]}" > "site-${project}.yaml"
+            ./kate values "${args[@]}" > "site-${project}.yaml"
             yq '.helm // {}' "${file}" > "project-${project}.yaml"
             values=(-f k8s/values/cluster.yaml -f cluster-helm.yaml -f "site-${project}.yaml" -f "project-${project}.yaml"
                     --set image.repository="ci/${project}" --set image.tag=ci)
@@ -50,7 +58,7 @@ jobs:
             routing=()
             [ -z "${domain}" ] || routing+=(--hostname "${domain}" --issuer letsencrypt-staging)
             [ "$(yq -r '.nodeIPs // false' "${file}")" = false ] || routing+=(--node-ips)
-            k8s/project-manifests.sh "${routing[@]}" > "rendered-${project}-routing.yaml"
+            ./kate manifests "${routing[@]}" > "rendered-${project}-routing.yaml"
           done
       - name: Kubernetes schemas
         run: |

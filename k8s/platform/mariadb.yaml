@@ -1,6 +1,6 @@
 # From bmack/typo3-k8s-starter examples/mariadb/01-mariadb.yaml (MIT).
 # typo3-kate: one replica, 1 GiB, local-path storage, no metrics.
-# Secret typo3-mariadb (root-password, typo3-password) is created by k8s/deploy.sh.
+# Secret typo3-mariadb (root-password, typo3-password) is created by ./kate deploy.
 ---
 apiVersion: k8s.mariadb.com/v1alpha1
 kind: MariaDB

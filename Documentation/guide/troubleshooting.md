@@ -102,7 +102,7 @@ kubectl -n typo3 logs -l app.kubernetes.io/component=migrations --all-containers
 | Message | Cause |
 |---|---|
 | `Table 'typo3.be_users' doesn't exist` | the database is empty: `extension:setup` can't install TYPO3. The deploy script runs `typo3 setup` first when `be_users` is missing. Check that step's output. |
-| `config/system/settings.php is not writable` | `settings.php` in the image is missing something TYPO3 wants to add. `docker/prepare-settings.php` adds it at build time: rebuild with `./k8s/deploy.sh kate`. See [TYPO3 architecture](../reference/typo3-architecture#why-settings-php-is-prepared-at-build-time). |
+| `config/system/settings.php is not writable` | `settings.php` in the image is missing something TYPO3 wants to add. `docker/prepare-settings.php` adds it at build time: rebuild with `./kate deploy kate`. See [TYPO3 architecture](../reference/typo3-architecture#why-settings-php-is-prepared-at-build-time). |
 
 After a failed first install, Helm keeps a failed release. Remove it before you retry:
 
@@ -145,7 +145,7 @@ kubectl -n gateway-system get gateway public-gateway \
 kubectl -n typo3 get httproute typo3 media -o jsonpath='{range .items[*]}{.metadata.name}: {.status.parents[*].conditions[*].reason}{"\n"}{end}'
 ```
 
-`https: 0 routes` on `public-gateway` means the node-IP site's namespace lacks the label `gateway-access: public`, which `k8s/deploy.sh` sets for a site with `nodeIPs: true` or without a domain. No Gateway `site` means the site has no `domain` in its `projects/<name>/kate.yaml`, or wasn't deployed since.
+`https: 0 routes` on `public-gateway` means the node-IP site's namespace lacks the label `gateway-access: public`, which `./kate deploy` sets for a site with `nodeIPs: true` or without a domain. No Gateway `site` means the site has no `domain` in its `projects/<name>/kate.yaml`, or wasn't deployed since.
 
 ## Let's Encrypt: certificate not issued
 
@@ -163,7 +163,7 @@ kubectl -n cert-manager logs deploy/cert-manager-webhook-hetzner --tail=30
 | browser warns although the certificate is `Ready` | still the staging certificate: set `acme.environment: production` in `projects/<name>/kate.yaml` and deploy again |
 | `clusterissuer.cert-manager.io "letsencrypt" not found` | no `acme:` section in the root `kate.yaml` yet: add it and run `tofu apply` in `infra/` |
 
-`k8s/deploy.sh` waits up to 10 minutes for the certificate and prints the challenges when it gives up.
+`./kate deploy` waits up to 10 minutes for the certificate and prints the challenges when it gives up.
 
 ## `tofu apply`: "Let's Encrypt is on (acme: in kate.yaml), so the Hetzner DNS token is needed"
 
@@ -185,12 +185,12 @@ kubectl -n typo3 exec garage-0 -- /garage bucket info media
 
 | Symptom | Cause |
 |---|---|
-| `TYPO3_S3_KEY` / `TYPO3_S3_SECRET` missing | `typo3-env` from before Garage: run `./k8s/deploy.sh kate`, it adds them |
+| `TYPO3_S3_KEY` / `TYPO3_S3_SECRET` missing | `typo3-env` from before Garage: run `./kate deploy kate`, it adds them |
 | storage still offline after the variables are there | the frontend/backend pods started before the change: `kubectl -n typo3 rollout restart deploy/typo3-backend deploy/typo3-frontend` |
 | timeouts to `garage:3900` | the NetworkPolicy `typo3-to-garage` is missing: `kubectl -n typo3 get networkpolicy` |
 | images in the page don't load (404) | `/media/` route or website mode: `kubectl -n typo3 get httproute media`, `… /garage bucket website --allow media` |
 
-## `k8s/deploy.sh` refuses to deploy a site
+## `./kate deploy` refuses to deploy a site
 
 It checks the other sites before it builds anything:
 

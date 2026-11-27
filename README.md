@@ -17,7 +17,7 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/), an S
 **1. Install the tools and start the services** (once):
 
 ```sh
-brew install opentofu libvirt qemu socket_vmnet cdrtools helm jq
+brew install opentofu libvirt qemu socket_vmnet cdrtools helm jq yq gum
 brew services start libvirt
 sudo brew services start socket_vmnet     # run in a normal terminal, it asks for your password
 ```
@@ -34,7 +34,7 @@ cd ..
 **3. Deploy TYPO3** (about 5 minutes the first time):
 
 ```sh
-./k8s/deploy.sh kate
+./kate deploy kate
 ```
 
 **4. Open it:**
@@ -67,10 +67,10 @@ infra/scripts/dashboard-token.sh 192.168.105.200                                
 ```sh
 sudo apt install -y qemu-kvm libvirt-daemon-system genisoimage
 sudo usermod -aG libvirt,kvm "$USER"      # log out and back in
-# install OpenTofu, Docker, helm and jq
+# install OpenTofu, Docker, helm, jq, yq and gum
 
 cd infra && tofu init && tofu apply -var-file=odroid.tfvars && cd ..
-./k8s/deploy.sh kate
+./kate deploy kate
 ```
 
 The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach it from other machines, put the VMs on your LAN: see [Odroid H2 host](https://ochorocho.github.io/typo3-kate/guide/odroid).
@@ -82,8 +82,11 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ## Everyday commands
 
 ```sh
-./k8s/deploy.sh kate                                 # build and roll out a new version of one site
-./k8s/deploy.sh --all                                # every site in projects/
+./kate                                             # menu: deploy, new, status, remove (needs gum)
+./kate deploy kate                                 # build and roll out a new version of one site
+./kate deploy --all                                # every site in projects/
+./kate new shop --domain shop.example.com          # a new site from the template
+./kate status                                      # every site and its state
 helm -n typo3 rollback typo3 <revision>              # go back to an earlier release
 kubectl -n typo3 logs deploy/typo3-frontend -f       # logs
 cd infra && tofu destroy -var-file=macos.tfvars -parallelism=1   # remove everything
@@ -96,9 +99,8 @@ projects/<name>/       one TYPO3 site each: kate.yaml, composer.json/.lock, conf
 ├── kate/              the kate site (namespace typo3, kate.ochorocho.dev)
 └── _example/          template for a new site (folders starting with _ are skipped)
 infra/                 OpenTofu: VMs, k3s and the cluster platform
+kate                   ./kate deploy | new | status | remove (gum menu without arguments)
 k8s/                   everything that runs on the cluster
-├── deploy.sh          build, push and deploy one site: k8s/deploy.sh <name> | --all
-├── remove.sh          remove one site from the cluster
 ├── charts/typo3/      Helm chart (from typo3-k8s-starter)
 ├── values/cluster.yaml  Helm values for this cluster
 ├── platform/          MariaDB, Valkey, Garage (S3) and volumes, per site namespace

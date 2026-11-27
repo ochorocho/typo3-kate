@@ -53,11 +53,11 @@ config/system/                 shared: configuration from environment variables 
 packages/                      shared: k8s-health (health checks), k8s-starter (site package)
 docker/                        production image, built per site (--build-arg PROJECT=<name>);
                                prepare-settings.php runs at build time
+kate                           the one script (needs gum): deploy, new, status, remove;
+                               values and manifests (a site's Helm values, Gateway,
+                               Certificate and /media/ route) for CI. Asks for what is
+                               missing, nothing with every argument given
 k8s/                           everything that runs on the cluster
-├── deploy.sh                  build, push, deploy: deploy.sh <name> [--no-build] | --all
-├── remove.sh                  remove a site: release, namespace, released NFS volumes
-├── site-values.sh             Helm values from a site's URL and domain (media, Mercure, routes)
-├── project-manifests.sh       a site's Gateway, Certificate and /media/ route
 ├── charts/typo3/              Helm chart (unchanged from upstream)
 ├── values/cluster.yaml        values for this cluster
 ├── platform/                  MariaDB, Valkey, Garage (S3), RWX volumes, per site namespace

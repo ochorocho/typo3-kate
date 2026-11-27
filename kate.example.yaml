@@ -1,6 +1,6 @@
 # Your own settings for this cluster. Copy to kate.yaml (git-ignored) and edit:
 #   cp kate.example.yaml kate.yaml && chmod 600 kate.yaml
-# Read by OpenTofu (infra/) and by k8s/deploy.sh. Everything is optional:
+# Read by OpenTofu (infra/) and by ./kate deploy. Everything is optional:
 # without kate.yaml the cluster runs on IP addresses with the cluster CA.
 # Each site's domain and Let's Encrypt environment: projects/<name>/kate.yaml.
 

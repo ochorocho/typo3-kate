@@ -65,7 +65,7 @@ All options are in `variables.tf`. Common ones:
 - `k3s_channel`: e.g. `"v1.34"` to pin a Kubernetes minor
 - `ssh_public_key_path`: defaults to `~/.ssh/id_ed25519.pub`; installed by cloud-init, so changing it rebuilds the VMs
 - `ssh.authorizedKeys` in `../kate.yaml`: more public keys, e.g. your laptop's; added over SSH on every apply, without rebuilding the VMs
-- `acme:` in `../kate.yaml`: the Let's Encrypt ClusterIssuers (DNS-01 on Hetzner) that every site's certificate uses; the token is then needed on every run. Domains are per site, in `../projects/<name>/kate.yaml`, and `k8s/deploy.sh` creates each site's Gateway and certificate
+- `acme:` in `../kate.yaml`: the Let's Encrypt ClusterIssuers (DNS-01 on Hetzner) that every site's certificate uses; the token is then needed on every run. Domains are per site, in `../projects/<name>/kate.yaml`, and `./kate deploy` creates each site's Gateway and certificate
 - `wait_for_cluster = false`: return as soon as the VMs are started
 
 ## Troubleshooting

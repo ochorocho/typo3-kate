@@ -1,0 +1,735 @@
+#!/usr/bin/env bash
+# typo3-kate: deploy, create, inspect and remove the TYPO3 sites in projects/
+# on the libvirt cluster from infra/. Asks (with gum) for whatever is missing
+# on the command line; with every argument given it asks nothing.
+#
+#   ./kate                                   menu
+#   ./kate deploy [<site>|--all] [--no-build]
+#   ./kate new [<site>] [--domain <domain>] [--acme staging|production]
+#              [--namespace <ns>] [--node-ips] [--from <site>]
+#   ./kate status
+#   ./kate remove [<site>] [--yes]
+#   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
+#   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
+#
+# Settings: projects/<site>/kate.yaml (domain, acme.environment, namespace,
+#           nodeIPs, helm:), ./kate.yaml (git-ignored, cluster-wide)
+# Env:      KUBECONFIG (default infra/kubeconfig), REGISTRY (default: tofu
+#           output), RELEASE (typo3)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+RELEASE="${RELEASE:-typo3}"
+BUILDER=typo3-kate
+KATE_FILE="${ROOT}/kate.yaml"
+
+# --- ui ------------------------------------------------------------------------
+# Messages go to stderr, so `values` and `manifests` print only YAML.
+command -v gum >/dev/null || { echo "Error: gum is not installed (https://github.com/charmbracelet/gum)" >&2; exit 1; }
+step() { echo >&2; gum style --bold --foreground 212 "$*" >&2; }
+note() { gum style --faint "$*" >&2; }
+fail() { gum style --foreground 196 "Error: $*" >&2; exit 1; }
+interactive() { [ -t 0 ] && [ -t 2 ]; }
+# ask_choose <what> <header> <option>...: one option, or fail without a terminal
+ask_choose() {
+  local what="$1" header="$2"
+  shift 2
+  interactive || fail "missing ${what}: pass it on the command line"
+  gum choose --header "${header}" "$@"
+}
+# ask_input <what> <header> [<value>] [<placeholder>]
+ask_input() {
+  interactive || fail "missing $1: pass it on the command line"
+  gum input --header "$2" --value "${3:-}" --placeholder "${4:-}"
+}
+# wait_for <title> <command>...: a spinner on a terminal, the output on failure
+wait_for() {
+  local title="$1"
+  shift
+  if [ -t 2 ]; then
+    gum spin --show-error --title "${title}" -- "$@"
+  else
+    note "${title}"
+    "$@"
+  fi
+}
+need() {
+  local tool
+  for tool in "$@"; do
+    command -v "${tool}" >/dev/null || fail "${tool} is not installed"
+  done
+}
+
+# --- projects --------------------------------------------------------------------
+# Folders in projects/ with a composer.json; _example is only a template.
+list_projects() {
+  local dir
+  for dir in "${ROOT}"/projects/*/; do
+    [ -f "${dir}composer.json" ] || continue
+    basename "${dir}"
+  done
+}
+
+valid_name() { [[ "$1" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]]; }
+
+# load_project <site>: PROJECT, PROJECT_DIR, PROJECT_FILE, NAMESPACE, DOMAIN,
+# ACME_ENVIRONMENT, NODE_IPS. Without a domain the site answers on the node IPs.
+load_project() {
+  PROJECT="$1"
+  valid_name "${PROJECT}" \
+    || fail "site name '${PROJECT}': lowercase letters, digits and dashes only (it names the image and namespace)"
+  PROJECT_DIR="${ROOT}/projects/${PROJECT}"
+  [ -f "${PROJECT_DIR}/composer.json" ] || fail "no projects/${PROJECT}/composer.json"
+  PROJECT_FILE="${PROJECT_DIR}/kate.yaml"
+  setting() { if [ -f "${PROJECT_FILE}" ]; then yq -r "$1" "${PROJECT_FILE}"; else echo "$2"; fi; }
+  NAMESPACE="$(setting ".namespace // \"${PROJECT}\"" "${PROJECT}")"
+  DOMAIN="$(setting '.domain // ""' "")"
+  ACME_ENVIRONMENT="$(setting '.acme.environment // "staging"' staging)"
+  NODE_IPS="$(setting '.nodeIPs // false' false)"
+  [ -n "${DOMAIN}" ] || NODE_IPS=true
+  [[ "${ACME_ENVIRONMENT}" == staging || "${ACME_ENVIRONMENT}" == production ]] \
+    || fail "acme.environment in projects/${PROJECT}/kate.yaml must be staging or production"
+}
+
+# --- cluster -----------------------------------------------------------------------
+# connect: KUBECONFIG, REGISTRY, MASTER_IP and WORK_DIR (removed on exit,
+# together with the SSH tunnel, if one was needed)
+TUNNEL_CTL=""
+WORK_DIR=""
+cleanup() {
+  if [ -n "${TUNNEL_CTL}" ]; then
+    ssh -S "${TUNNEL_CTL}" -O exit "ubuntu@${MASTER_IP}" 2>/dev/null || true
+  fi
+  [ -z "${WORK_DIR}" ] || rm -rf "${WORK_DIR}"
+}
+trap cleanup EXIT
+
+connect() {
+  export KUBECONFIG="${KUBECONFIG:-${ROOT}/infra/kubeconfig}"
+  [ -f "${KUBECONFIG}" ] || fail "no kubeconfig at ${KUBECONFIG} (run tofu apply in infra/)"
+  REGISTRY="${REGISTRY:-$(tofu -chdir="${ROOT}/infra" output -raw registry)}"
+  MASTER_IP="${REGISTRY%%:*}"
+  WORK_DIR="$(mktemp -d)"
+  # macOS may block kubectl/helm from the VM subnet (Local Network privacy)
+  # while ssh is allowed. Then talk to the API through an SSH tunnel on
+  # localhost; the k3s API certificate is valid for 127.0.0.1.
+  kubectl get --raw /readyz >/dev/null 2>&1 && return
+  note "API not reachable directly, using an SSH tunnel to ${MASTER_IP}"
+  local port="" candidate
+  # The first free local port, so several deploys can run at the same time
+  for candidate in $(seq 16443 16463); do
+    if ssh -f -N -M -S "${WORK_DIR}/ctl" -o ExitOnForwardFailure=yes \
+        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        -L "127.0.0.1:${candidate}:127.0.0.1:6443" "ubuntu@${MASTER_IP}" 2>/dev/null; then
+      port="${candidate}"
+      break
+    fi
+  done
+  [ -n "${port}" ] || fail "no SSH tunnel to ${MASTER_IP} (ports 16443-16463 busy or ssh refused)"
+  TUNNEL_CTL="${WORK_DIR}/ctl"
+  sed "s#https://${MASTER_IP}:6443#https://127.0.0.1:${port}#" "${KUBECONFIG}" > "${WORK_DIR}/kubeconfig"
+  export KUBECONFIG="${WORK_DIR}/kubeconfig"
+  kubectl get --raw /readyz >/dev/null || fail "cluster not reachable, also not through SSH"
+}
+
+k() { kubectl -n "${NAMESPACE}" "$@"; }
+secret_value() { k get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; }
+
+# --- values: Helm values from a site's URL and domain ----------------------------
+#   --hostname <domain>  the site's own Gateway "site" (manifests), routes for this host only
+#   --node-ips           also infra's public-gateway (https listener, node IPs), any host
+# Without either: public-gateway only, for any host.
+cmd_values() {
+  local usage="Usage: ./kate values <site-url> [--hostname <domain>] [--node-ips]"
+  [ $# -ge 1 ] || fail "${usage}"
+  local site_url="${1%/}" hostname="" node_ips=false
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hostname) [ $# -ge 2 ] || fail "${usage}"; hostname="$2"; shift 2 ;;
+      --node-ips) node_ips=true; shift ;;
+      *) fail "${usage}" ;;
+    esac
+  done
+  [ -n "${hostname}" ] || node_ips=true
+
+  local refs=() hostnames="[]"
+  if [ -n "${hostname}" ]; then
+    refs+=('{"name": "site", "sectionName": "https"}')
+    hostnames="[\"${hostname}\"]"
+  fi
+  if [ "${node_ips}" = true ]; then
+    refs+=('{"name": "public-gateway", "namespace": "gateway-system", "sectionName": "https"}')
+    hostnames="[]"   # node IPs carry no hostname
+  fi
+  SITE_URL="${site_url}" PARENT_REFS="[$(IFS=,; echo "${refs[*]}")]" HOSTNAMES="${hostnames}" yq -n '
+    .typo3.extraEnv.TYPO3_S3_PUBLIC_URL = strenv(SITE_URL) + "/media/typo3/" |
+    .mercure.publicUrl = strenv(SITE_URL) + "/.well-known/mercure" |
+    .httpRoute.parentRefs = env(PARENT_REFS) |
+    .httpRoute.hostnames = env(HOSTNAMES)'
+}
+
+# --- manifests: the per-site routing, applied into the site's namespace ------------
+#  - Gateway "site": one HTTPS listener for the domain. Every Gateway on port
+#    8443 lands on Traefik's websecure entrypoint; Traefik picks the
+#    certificate by SNI, so sites never touch infra's public-gateway.
+#  - Certificate "site": Let's Encrypt for the domain (secret site-tls), via
+#    the ClusterIssuers from infra/templates/acme.yaml.tftpl
+#  - HTTPRoute "media": /media/ -> Garage, attached like the chart's route
+# Without a domain only the media route (node IPs, public-gateway).
+cmd_manifests() {
+  local usage="Usage: ./kate manifests [--hostname <domain> --issuer <cluster-issuer>] [--node-ips]"
+  local hostname="" issuer="" values_args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hostname) [ $# -ge 2 ] || fail "${usage}"; hostname="$2"; values_args+=(--hostname "$2"); shift 2 ;;
+      --issuer) [ $# -ge 2 ] || fail "${usage}"; issuer="$2"; shift 2 ;;
+      --node-ips) values_args+=(--node-ips); shift ;;
+      *) fail "${usage}" ;;
+    esac
+  done
+  [ -z "${hostname}" ] || [ -n "${issuer}" ] || fail "${usage}"
+
+  if [ -n "${hostname}" ]; then
+    cat <<YAML
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: site
+spec:
+  gatewayClassName: traefik
+  listeners:
+    # Port 8443 = Traefik's "websecure" entrypoint (port 443 on every node)
+    - name: https
+      hostname: "${hostname}"
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: site-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: site
+spec:
+  secretName: site-tls
+  dnsNames:
+    - "${hostname}"
+  issuerRef:
+    kind: ClusterIssuer
+    name: ${issuer}
+---
+YAML
+  fi
+
+  # The URL only matters for values this route doesn't use
+  local route
+  route="$(cmd_values https://unused ${values_args[@]+"${values_args[@]}"} | yq -o json -I0 '.httpRoute')"
+  echo "# https://<site>/media/<key> -> Garage web endpoint, bucket \"media\"."
+  echo "# Longer than the chart's \"/\" route, so it wins for /media."
+  ROUTE="${route}" yq -n '
+    .apiVersion = "gateway.networking.k8s.io/v1" |
+    .kind = "HTTPRoute" |
+    .metadata.name = "media" |
+    .spec.parentRefs = env(ROUTE).parentRefs |
+    .spec.hostnames = env(ROUTE).hostnames |
+    .spec.rules = [{
+      "matches": [{"path": {"type": "PathPrefix", "value": "/media/"}}],
+      "filters": [{"type": "URLRewrite", "urlRewrite": {"hostname": "media", "path": {"type": "ReplacePrefixMatch", "replacePrefixMatch": "/"}}}],
+      "backendRefs": [{"name": "garage", "port": 3902}]
+    }] |
+    del(.spec.hostnames | select(length == 0)) |
+    ... style = ""'
+}
+
+# --- deploy --------------------------------------------------------------------------
+# 1. builds the site's production image (docker/Dockerfile) and pushes it to
+#    the cluster registry; the release uses its digest
+# 2. creates the site's namespace and, once, the Secrets with random passwords
+# 3. its Gateway, certificate and media route (cmd_manifests)
+# 4. applies k8s/platform/ (MariaDB, Valkey, Garage S3, RWX volumes) and waits
+# 5. empty database only: `typo3 setup` in a one-off pod (schema + admin user),
+#    then the root page and sample pages (k8s/bootstrap.sql). The chart's
+#    migrations hook can't do this: extension:setup needs be_users to exist.
+# 6. `helm upgrade --install` with k8s/charts/typo3. Values, last one wins:
+#    k8s/values/cluster.yaml, ./kate.yaml helm:, cmd_values, the site's helm:
+cmd_deploy() {
+  local project="" all=false build=true asked=false arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --no-build) build=false ;;
+      --all) all=true ;;
+      -*) fail "Usage: ./kate deploy [<site>|--all] [--no-build]" ;;
+      *) [ -z "${project}" ] || fail "one site, or --all"; project="${arg}" ;;
+    esac
+  done
+  local projects
+  projects="$(list_projects)"
+  [ -n "${projects}" ] || fail "no site in projects/ yet: ./kate new"
+
+  if [ "${all}" = false ] && [ -z "${project}" ]; then
+    # shellcheck disable=SC2086 # one site per line
+    project="$(ask_choose "<site> (or --all)" "Deploy which site?" ${projects} "all sites")"
+    asked=true
+    if gum confirm "Build a new image? (No: redeploy the current one)"; then build=true; else build=false; fi
+  fi
+  if [ "${all}" = true ] || [ "${project}" = "all sites" ]; then
+    local flags=() p
+    [ "${build}" = true ] || flags+=(--no-build)
+    for p in ${projects}; do
+      "$0" deploy "${p}" ${flags[@]+"${flags[@]}"}
+    done
+    return
+  fi
+
+  load_project "${project}"
+  need docker kubectl helm jq yq openssl tofu
+  if [ "${asked}" = true ]; then
+    gum style --border rounded --padding "0 1" >&2 \
+      "Site:      ${PROJECT}" "Namespace: ${NAMESPACE}" \
+      "Domain:    ${DOMAIN:-(none, node IPs)}" "Let's Encrypt: ${ACME_ENVIRONMENT}" \
+      "Node IPs:  ${NODE_IPS}" "Image:     $([ "${build}" = true ] && echo "build a new one" || echo "keep the current one")"
+    gum confirm "Deploy?" || fail "cancelled"
+  fi
+
+  connect
+  local image="${REGISTRY}/${PROJECT}" site_url="https://${DOMAIN:-${MASTER_IP}}"
+
+  # 0. other sites. Each namespace records its site (annotations typo3-kate/*).
+  # A namespace with the gateway-access=public label but no annotation is from
+  # before projects/ and counts as the node-IP site.
+  local others owner taken
+  others="$(kubectl get namespaces -o json | jq -c --arg ns "${NAMESPACE}" '
+    [.items[] | {ns: .metadata.name, a: (.metadata.annotations // {}), l: (.metadata.labels // {})}
+     | select(.a["typo3-kate/project"] != null or .l["gateway-access"] == "public")
+     | select(.ns != $ns)
+     | {ns, project: (.a["typo3-kate/project"] // "from before projects/"), domain: (.a["typo3-kate/domain"] // ""),
+        nodeIPs: (.l["gateway-access"] == "public")}]')"
+  owner="$(kubectl get namespace "${NAMESPACE}" -o json 2>/dev/null | jq -r '.metadata.annotations["typo3-kate/project"] // ""' || true)"
+  [ -z "${owner}" ] || [ "${owner}" = "${PROJECT}" ] \
+    || fail "namespace ${NAMESPACE} belongs to site ${owner}: set another namespace in projects/${PROJECT}/kate.yaml"
+  if [ -n "${DOMAIN}" ]; then
+    taken="$(jq -r --arg d "${DOMAIN}" '.[] | select(.domain == $d) | "\(.project) (namespace \(.ns))"' <<<"${others}")"
+    [ -z "${taken}" ] || fail "${DOMAIN} is already the domain of ${taken}"
+  fi
+  if [ "${NODE_IPS}" = true ]; then
+    taken="$(jq -r '.[] | select(.nodeIPs) | "\(.project) (namespace \(.ns))"' <<<"${others}")"
+    [ -z "${taken}" ] || fail "only one site can answer on the node IPs and ${taken} does: give projects/${PROJECT}/kate.yaml a domain"
+  fi
+
+  # 1. image
+  local digest
+  if [ "${build}" = false ]; then
+    local released
+    released="$(helm -n "${NAMESPACE}" get values "${RELEASE}" -o json 2>/dev/null || echo '{}')"
+    digest="$(jq -r '.image.digest // empty' <<<"${released}")"
+    [ -n "${digest}" ] || fail "no deployed image yet, deploy with a build first"
+    image="$(jq -r --arg i "${image}" '.image.repository // $i' <<<"${released}")"
+    step "Reusing image ${image}@${digest}"
+  else
+    local arch tag meta
+    arch="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')"
+    tag="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
+    step "Building ${image}:${tag} for linux/${arch}"
+    # A BuildKit builder that may push to the plain-HTTP cluster registry.
+    if ! docker buildx inspect "${BUILDER}" >/dev/null 2>&1; then
+      printf '[registry."%s"]\n  http = true\n  insecure = true\n' "${REGISTRY}" > "${WORK_DIR}/buildkitd.toml"
+      docker buildx create --name "${BUILDER}" --driver docker-container --buildkitd-config "${WORK_DIR}/buildkitd.toml" >/dev/null
+    fi
+    meta="${WORK_DIR}/build-meta.json"
+    docker buildx build --builder "${BUILDER}" --platform "linux/${arch}" \
+      -f "${ROOT}/docker/Dockerfile" --build-arg PROJECT="${PROJECT}" -t "${image}:${tag}" \
+      --push --metadata-file "${meta}" "${ROOT}"
+    digest="$(jq -r '."containerimage.digest"' "${meta}")"
+    [[ "${digest}" == sha256:* ]] || fail "no image digest in the build output"
+    note "Pushed ${image}@${digest}"
+  fi
+
+  # 2. namespace + secrets
+  step "Namespace ${NAMESPACE} (site ${PROJECT})"
+  kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl annotate namespace "${NAMESPACE}" --overwrite \
+    typo3-kate/project="${PROJECT}" typo3-kate/domain="${DOMAIN}" >/dev/null
+  if [ "${NODE_IPS}" = true ]; then
+    # may attach to public-gateway's https listener, which answers on the node IPs
+    kubectl label namespace "${NAMESPACE}" gateway-access=public --overwrite >/dev/null
+  elif [ -n "$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.metadata.labels.gateway-access}')" ]; then
+    kubectl label namespace "${NAMESPACE}" gateway-access- >/dev/null
+  fi
+
+  if ! k get secret typo3-env >/dev/null 2>&1; then
+    note "Creating Secrets with random passwords"
+    local db_password valkey_password
+    db_password="$(openssl rand -hex 24)"
+    valkey_password="$(openssl rand -hex 24)"
+    k create secret generic typo3-env \
+      --from-literal=TYPO3_ENCRYPTION_KEY="$(openssl rand -hex 48)" \
+      --from-literal=TYPO3_DB_PASSWORD="${db_password}" \
+      --from-literal=TYPO3_VALKEY_PASSWORD="${valkey_password}" >/dev/null
+    k create secret generic typo3-mariadb \
+      --from-literal=root-password="$(openssl rand -hex 24)" \
+      --from-literal=typo3-password="${db_password}" >/dev/null
+    k label secret typo3-mariadb k8s.mariadb.com/watch= >/dev/null
+    k create secret generic typo3-valkey --from-literal=password="${valkey_password}" >/dev/null
+    k create secret generic typo3-admin \
+      --from-literal=username=admin \
+      --from-literal=password="$(openssl rand -base64 18 | tr -d '/+=')A1." >/dev/null
+  fi
+  # Garage (S3): created separately, so clusters from before Garage get it too.
+  if ! k get secret typo3-garage >/dev/null 2>&1; then
+    note "Creating the Garage Secret"
+    k create secret generic typo3-garage \
+      --from-literal=rpc-secret="$(openssl rand -hex 32)" \
+      --from-literal=admin-token="$(openssl rand -base64 32)" \
+      --from-literal=access-key="GK$(openssl rand -hex 12)" \
+      --from-literal=secret-key="$(openssl rand -hex 32)" >/dev/null
+  fi
+  if [ -z "$(k get secret typo3-env -o jsonpath='{.data.TYPO3_S3_KEY}')" ]; then
+    note "Adding the S3 credentials to typo3-env"
+    k patch secret typo3-env --type merge -p "$(jq -n \
+      --arg key "$(secret_value typo3-garage access-key)" \
+      --arg secret "$(secret_value typo3-garage secret-key)" \
+      '{stringData: {TYPO3_S3_KEY: $key, TYPO3_S3_SECRET: $secret}}')" >/dev/null
+  fi
+  # Mercure JWT keys: always present, so mercure.enabled can be switched on any time.
+  if [ -z "$(k get secret typo3-env -o jsonpath='{.data.MERCURE_PUBLISHER_JWT_KEY}')" ]; then
+    note "Adding the Mercure JWT keys to typo3-env"
+    k patch secret typo3-env --type merge -p "$(jq -n \
+      --arg pub "$(openssl rand -hex 32)" \
+      --arg sub "$(openssl rand -hex 32)" \
+      '{stringData: {MERCURE_PUBLISHER_JWT_KEY: $pub, MERCURE_SUBSCRIBER_JWT_KEY: $sub}}')" >/dev/null
+  fi
+
+  # 3. routing: Gateway, certificate, media route
+  step "Routing ${DOMAIN:-(node IPs only)}"
+  local route_args=()
+  if [ -n "${DOMAIN}" ]; then
+    local issuer=letsencrypt-staging
+    [ "${ACME_ENVIRONMENT}" = staging ] || issuer=letsencrypt
+    route_args+=(--hostname "${DOMAIN}" --issuer "${issuer}")
+  fi
+  [ "${NODE_IPS}" = false ] || route_args+=(--node-ips)
+  cmd_manifests ${route_args[@]+"${route_args[@]}"} | k apply -f - >/dev/null
+  if [ -n "${DOMAIN}" ]; then
+    # DNS-01 takes a few minutes the first time (TXT record, propagation)
+    if ! wait_for "Let's Encrypt certificate for ${DOMAIN} (DNS-01, a few minutes the first time)" \
+        kubectl -n "${NAMESPACE}" wait certificate/site --for=condition=Ready --timeout=10m; then
+      k describe certificate site | tail -15 >&2 || true
+      kubectl get challenges -n "${NAMESPACE}" -o wide >&2 || true
+      fail "no certificate for ${DOMAIN}: is it in a Hetzner DNS zone that the token in ./kate.yaml may edit?"
+    fi
+    wait_for "Gateway" kubectl -n "${NAMESPACE}" wait gateway/site --for=condition=Programmed --timeout=2m
+  fi
+
+  # 4. platform
+  step "MariaDB, Valkey, Garage, volumes"
+  k apply -f "${ROOT}/k8s/platform/" >/dev/null
+  # Replaced by networkPolicy.extraEgress: alone it cut a new release's
+  # migrations Job off from DNS (the chart's policy comes after the hook)
+  k delete networkpolicy typo3-to-garage --ignore-not-found >/dev/null
+  wait_for "MariaDB" kubectl -n "${NAMESPACE}" wait mariadb/typo3-mariadb --for=condition=Ready --timeout=10m
+  wait_for "database, user, grant" kubectl -n "${NAMESPACE}" wait database/typo3 user/typo3 grant/typo3 --for=condition=Ready --timeout=5m
+  wait_for "Valkey" kubectl -n "${NAMESPACE}" rollout status statefulset/typo3-valkey --timeout=5m
+  wait_for "Valkey cache" kubectl -n "${NAMESPACE}" rollout status deployment/typo3-valkey-cache --timeout=5m
+  wait_for "Garage" kubectl -n "${NAMESPACE}" rollout status statefulset/garage --timeout=5m
+  # The default bucket exists; serving it anonymously is a separate switch.
+  k exec garage-0 -- /garage bucket website --allow media >/dev/null
+  wait_for "volumes" kubectl -n "${NAMESPACE}" wait pvc/typo3-fileadmin pvc/typo3-typo3temp-assets \
+    --for=jsonpath='{.status.phase}'=Bound --timeout=5m
+
+  # 5. first install
+  mariadb_root() {
+    k exec -i typo3-mariadb-0 -c mariadb -- \
+      mariadb -uroot -p"$(secret_value typo3-mariadb root-password)" typo3 "$@"
+  }
+  local first_install=false
+  if [ -z "$(mariadb_root -N -e "SHOW TABLES LIKE 'be_users'")" ]; then
+    first_install=true
+    step "Empty database: installing TYPO3"
+    # Same image as the release. `typo3 setup` writes settings.php, which is
+    # root-owned in the image: give it a writable copy of config/system without
+    # settings.php (thrown away with the pod; the image keeps its own).
+    k delete pod typo3-install --ignore-not-found >/dev/null
+    cat <<YAML | k apply -f - >/dev/null
+apiVersion: v1
+kind: Pod
+metadata:
+  name: typo3-install
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+  volumes:
+    - name: config-system
+      emptyDir: {}
+  initContainers:
+    - name: copy-config
+      image: ${image}@${digest}
+      command: ["sh", "-c", "cp /app/config/system/* /config-system/ && rm /config-system/settings.php"]
+      volumeMounts:
+        - {name: config-system, mountPath: /config-system}
+  containers:
+    - name: setup
+      image: ${image}@${digest}
+      volumeMounts:
+        - {name: config-system, mountPath: /app/config/system}
+      command:
+        - sh
+        - -c
+        - >-
+          vendor/bin/typo3 setup --no-interaction --force --server-type=other
+          --driver=mysqli --host=typo3-mariadb --port=3306 --dbname=typo3 --username=typo3
+          --password="\$TYPO3_DB_PASSWORD"
+          --admin-username="\$ADMIN_USERNAME" --admin-user-password="\$ADMIN_PASSWORD"
+          --admin-email=admin@typo3-kate.local --project-name="${PROJECT}"
+      envFrom:
+        - secretRef:
+            name: typo3-env
+      env:
+        - name: TYPO3_DB_HOST
+          value: typo3-mariadb
+        - name: ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef: {name: typo3-admin, key: username}
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: typo3-admin, key: password}
+YAML
+    local phase="" _
+    note "Waiting for typo3 setup (up to 10 minutes)"
+    for _ in $(seq 1 120); do
+      phase="$(k get pod typo3-install -o jsonpath='{.status.phase}')"
+      [[ "${phase}" == Succeeded || "${phase}" == Failed ]] && break
+      sleep 5
+    done
+    if [ "${phase}" != Succeeded ]; then
+      k logs typo3-install --all-containers --tail=40 >&2 || true
+      fail "typo3 setup ${phase:-did not finish} (pod typo3-install kept for inspection)"
+    fi
+    k logs typo3-install | grep -vE '"level":"(debug|info|notice)"' | tail -5 >&2
+    k delete pod typo3-install >/dev/null
+    mariadb_root < "${ROOT}/k8s/bootstrap.sql"
+    note "Root page, About and Contact created"
+  fi
+
+  # 6. helm
+  step "Helm release ${RELEASE}"
+  local values_args=("${site_url}")
+  [ -z "${DOMAIN}" ] || values_args+=(--hostname "${DOMAIN}")
+  [ "${NODE_IPS}" = false ] || values_args+=(--node-ips)
+  cmd_values "${values_args[@]}" > "${WORK_DIR}/site.yaml"
+  helm_values() { if [ -f "$1" ]; then yq '.helm // {}' "$1"; else echo "{}"; fi; }
+  helm_values "${KATE_FILE}" > "${WORK_DIR}/cluster-kate.yaml"
+  helm_values "${PROJECT_FILE}" > "${WORK_DIR}/project-kate.yaml"
+  wait_for "helm upgrade (migrations first, then the rollout)" \
+    helm upgrade --install "${RELEASE}" "${ROOT}/k8s/charts/typo3" \
+      --namespace "${NAMESPACE}" \
+      -f "${ROOT}/k8s/values/cluster.yaml" \
+      -f "${WORK_DIR}/cluster-kate.yaml" \
+      -f "${WORK_DIR}/site.yaml" \
+      -f "${WORK_DIR}/project-kate.yaml" \
+      --set image.repository="${image}" \
+      --set image.digest="${digest}" \
+      --wait --timeout 15m
+  if [ "${first_install}" = true ]; then
+    k exec deploy/"${RELEASE}"-backend -- vendor/bin/typo3 cache:flush >/dev/null   # caches in Valkey are shared
+  fi
+
+  # summary
+  echo >&2
+  k get pods -o wide >&2
+  local where="${site_url}/"
+  [ "${NODE_IPS}" = false ] || [ -z "${DOMAIN}" ] || where="${where}   (every node IP works too; trust infra/cluster-ca.crt for those)"
+  echo >&2
+  gum style --border rounded --padding "0 1" >&2 \
+    "TYPO3:    ${where}" \
+    "Backend:  ${site_url}/typo3   user: $(secret_value typo3-admin username)" \
+    "Password: kubectl -n ${NAMESPACE} get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d"
+}
+
+# --- new: create a site in projects/<site>/ ------------------------------------------
+cmd_new() {
+  local name="" domain="" domain_set=false acme="" namespace="" node_ips=false from=""
+  local usage="Usage: ./kate new [<site>] [--domain <domain>] [--acme staging|production] [--namespace <ns>] [--node-ips] [--from <site>]"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --domain) [ $# -ge 2 ] || fail "${usage}"; domain="$2"; domain_set=true; shift 2 ;;
+      --acme) [ $# -ge 2 ] || fail "${usage}"; acme="$2"; shift 2 ;;
+      --namespace) [ $# -ge 2 ] || fail "${usage}"; namespace="$2"; shift 2 ;;
+      --node-ips) node_ips=true; shift ;;
+      --from) [ $# -ge 2 ] || fail "${usage}"; from="$2"; shift 2 ;;
+      -*) fail "${usage}" ;;
+      *) [ -z "${name}" ] || fail "${usage}"; name="$1"; shift ;;
+    esac
+  done
+  need yq
+
+  if [ -z "${name}" ]; then
+    name="$(ask_input "<site>" "Name of the new site (folder, image and default namespace)" "" "shop")"
+  fi
+  valid_name "${name}" || fail "site name '${name}': lowercase letters, digits and dashes only"
+  [ ! -e "${ROOT}/projects/${name}" ] || fail "projects/${name} exists already"
+
+  local projects
+  projects="$(list_projects)"
+  [ -n "${projects}" ] || fail "no site to copy composer.json and config/sites from"
+  if [ -z "${from}" ]; then
+    if [ "$(wc -l <<<"${projects}" | tr -d ' ')" -eq 1 ]; then
+      from="${projects}"
+    else
+      # shellcheck disable=SC2086 # one site per line
+      from="$(ask_choose "--from" "Copy composer.json and config/sites from which site?" ${projects})"
+    fi
+  fi
+  [ -f "${ROOT}/projects/${from}/composer.json" ] || fail "no projects/${from}/composer.json"
+
+  if [ "${domain_set}" = false ]; then
+    domain="$(ask_input "--domain" "Domain (empty: answer on the node IPs instead, one site only)" "" "${name}.example.com")"
+  fi
+  if [ -n "${domain}" ] && [ -z "${acme}" ]; then
+    acme="$(ask_choose "--acme" "Let's Encrypt environment for ${domain}" staging production)"
+  fi
+  acme="${acme:-staging}"
+  [[ "${acme}" == staging || "${acme}" == production ]] || fail "--acme must be staging or production"
+  if [ -z "${namespace}" ]; then
+    if interactive; then
+      namespace="$(gum input --header "Kubernetes namespace" --value "${name}")"
+    else
+      namespace="${name}"
+    fi
+  fi
+  valid_name "${namespace}" || fail "namespace '${namespace}': lowercase letters, digits and dashes only"
+
+  local dir="${ROOT}/projects/${name}"
+  mkdir -p "${dir}/config"
+  cp "${ROOT}/projects/${from}/composer.json" "${dir}/"
+  [ ! -f "${ROOT}/projects/${from}/composer.lock" ] || cp "${ROOT}/projects/${from}/composer.lock" "${dir}/"
+  cp -R "${ROOT}/projects/${from}/config/sites" "${dir}/config/"
+  cp "${ROOT}/projects/_example/kate.yaml" "${dir}/kate.yaml"
+  DOMAIN="${domain}" ACME="${acme}" yq -i '.domain = strenv(DOMAIN) | .acme.environment = strenv(ACME)' "${dir}/kate.yaml"
+  [ "${namespace}" = "${name}" ] || NS="${namespace}" yq -i '.namespace = strenv(NS)' "${dir}/kate.yaml"
+  [ "${node_ips}" = false ] || yq -i '.nodeIPs = true' "${dir}/kate.yaml"
+
+  step "Created projects/${name}"
+  note "From projects/${from}: composer.json, composer.lock, config/sites/. Settings: projects/${name}/kate.yaml"
+  [ -z "${domain}" ] || note "Before deploying: an A record for ${domain} (and the zone in Hetzner DNS for the certificate)"
+  note "Deploy: ./kate deploy ${name}"
+}
+
+# --- status: the sites and what runs of them -----------------------------------------
+cmd_status() {
+  need kubectl helm jq yq tofu
+  connect
+  local rows=() p state cert pods
+  for p in $(list_projects); do
+    load_project "${p}"
+    if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+      rows+=("${PROJECT},${NAMESPACE},${DOMAIN:-node IPs},not deployed,-,-")
+      continue
+    fi
+    state="$(helm -n "${NAMESPACE}" status "${RELEASE}" -o json 2>/dev/null | jq -r '.info.status // "no release"' || echo "no release")"
+    cert="-"
+    [ -z "${DOMAIN}" ] || cert="$(kubectl -n "${NAMESPACE}" get certificate site -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+    pods="$(kubectl -n "${NAMESPACE}" get pods -o json | jq -r '
+      [.items[] | select(.status.phase != "Succeeded")] as $p
+      | "\([$p[] | select(all(.status.containerStatuses[]?; .ready))] | length)/\($p | length) ready"')"
+    rows+=("${PROJECT},${NAMESPACE},${DOMAIN:-node IPs},${state},${cert:-?},${pods}")
+  done
+  printf '%s\n' "${rows[@]}" | gum table --print --separator "," --columns "Site,Namespace,Domain,Release,Certificate,Pods"
+}
+
+# --- remove: a site's release, namespace and volumes ---------------------------------
+# The files in projects/<site>/ stay, and so do the NFS directories on the
+# master (Retain): delete those by hand once fileadmin is no longer needed.
+cmd_remove() {
+  local project="" yes=false arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --yes) yes=true ;;
+      -*) fail "Usage: ./kate remove [<site>] [--yes]" ;;
+      *) [ -z "${project}" ] || fail "one site at a time"; project="${arg}" ;;
+    esac
+  done
+  need kubectl helm jq yq tofu
+  connect
+
+  if [ -z "${project}" ]; then
+    local deployed
+    deployed="$(kubectl get namespaces -o json | jq -r '.items[].metadata.annotations["typo3-kate/project"] // empty' | sort -u)"
+    [ -n "${deployed}" ] || fail "no deployed site found"
+    # shellcheck disable=SC2086 # one site per line
+    project="$(ask_choose "<site>" "Remove which site from the cluster?" ${deployed})"
+  fi
+  NAMESPACE="${project}"
+  if [ -f "${ROOT}/projects/${project}/kate.yaml" ]; then
+    NAMESPACE="$(yq -r ".namespace // \"${project}\"" "${ROOT}/projects/${project}/kate.yaml")"
+  fi
+  # Annotations survive a renamed or deleted projects/ folder: prefer them
+  local annotated
+  annotated="$(kubectl get namespaces -o json | jq -r --arg p "${project}" \
+    '.items[] | select(.metadata.annotations["typo3-kate/project"] == $p) | .metadata.name' | head -1)"
+  NAMESPACE="${annotated:-${NAMESPACE}}"
+
+  kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || fail "namespace ${NAMESPACE} does not exist"
+  local owner
+  owner="$(kubectl get namespace "${NAMESPACE}" -o json | jq -r '.metadata.annotations["typo3-kate/project"] // ""')"
+  [ "${owner}" = "${project}" ] \
+    || fail "namespace ${NAMESPACE} is not marked as site ${project} (annotation typo3-kate/project: '${owner}'); deploy it once with ./kate deploy ${project}, or remove it by hand"
+
+  # NFS volumes use reclaimPolicy Retain: remember them before the claims go
+  local pvs
+  pvs="$(kubectl get pv -o json | jq -r --arg ns "${NAMESPACE}" \
+    '.items[] | select(.spec.claimRef.namespace == $ns) | "\(.metadata.name) \(.spec.persistentVolumeReclaimPolicy) \(.spec.csi.volumeHandle // "-")"')"
+
+  local lines=("Site ${project}: namespace ${NAMESPACE} with its database, files and Secrets")
+  if [ -n "${pvs}" ]; then
+    local line
+    while read -r line; do lines+=("  volume ${line}"); done <<<"${pvs}"
+  fi
+  gum style --border rounded --border-foreground 196 --padding "0 1" >&2 "${lines[@]}"
+  if [ "${yes}" = false ]; then
+    local answer
+    answer="$(ask_input "--yes" "Type the site name to delete it" "" "${project}")"
+    [ "${answer}" = "${project}" ] || fail "not confirmed, nothing deleted"
+  fi
+
+  wait_for "helm uninstall" sh -c "helm -n '${NAMESPACE}' uninstall '${RELEASE}' --wait 2>/dev/null || true"
+  wait_for "deleting namespace ${NAMESPACE}" kubectl delete namespace "${NAMESPACE}" --wait --timeout=10m
+  # The Retain volumes are Released now; their objects can go, the data stays
+  local name policy handle
+  while read -r name policy handle; do
+    [ -n "${name}" ] && [ "${policy}" = Retain ] || continue
+    kubectl delete pv "${name}" --ignore-not-found >/dev/null
+    note "data kept on the NFS server: ${handle}"
+  done <<<"${pvs}"
+  step "Removed ${project}"
+  note "Left to you: its DNS record and, when no longer needed, the NFS data above (on the master under /srv/nfs)."
+}
+
+# --- main ------------------------------------------------------------------------------
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+
+command="${1:-}"
+[ $# -eq 0 ] || shift
+if [ -z "${command}" ]; then
+  interactive || { usage; exit 1; }
+  command="$(gum choose --header "typo3-kate" deploy new status remove help)"
+fi
+case "${command}" in
+  deploy) cmd_deploy "$@" ;;
+  new) cmd_new "$@" ;;
+  status) cmd_status "$@" ;;
+  remove) cmd_remove "$@" ;;
+  values) cmd_values "$@" ;;
+  manifests) cmd_manifests "$@" ;;
+  help | -h | --help) usage ;;
+  *) usage; exit 1 ;;
+esac

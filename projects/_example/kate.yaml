@@ -1,5 +1,5 @@
-# Settings of one site. Copy the folder (projects/<name>/), add composer.json,
-# composer.lock and config/sites/, and deploy with: k8s/deploy.sh <name>
+# Settings of one site, the template for ./kate new <name> (which also copies
+# composer.json, composer.lock and config/sites/). Deploy: ./kate deploy <name>
 # Your own sites stay out of this repository (.gitignore: projects/* except
 # _example and kate), e.g. as a git repository of their own in projects/<name>/.
 # No secrets here either: those go into ./kate.yaml.

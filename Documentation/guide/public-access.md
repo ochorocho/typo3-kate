@@ -16,9 +16,9 @@ The VMs aren't reachable from the internet on their own, so Let's Encrypt can't 
 | cert-manager v1.21.3 | `infra/` | requests and renews certificates (about 30 days before they expire) |
 | `cert-manager-webhook-hetzner` | `infra/` | Hetzner's official DNS-01 solver (Hetzner Cloud API) |
 | ClusterIssuers `letsencrypt-staging`, `letsencrypt` | `infra/`, while `acme:` is in `kate.yaml` | the two Let's Encrypt environments, shared by all sites |
-| Certificate `site` → Secret `site-tls` | `k8s/deploy.sh`, in the site's namespace | the certificate for the site's domain |
-| Gateway `site` | `k8s/deploy.sh`, in the site's namespace | one HTTPS listener (port 8443) for the domain, with `site-tls` |
-| HTTPRoutes `typo3`, `media` | the chart / `k8s/deploy.sh` | attach to the site's Gateway, only for its hostname (the node-IP site's routes: any hostname, also on `public-gateway`) |
+| Certificate `site` → Secret `site-tls` | `./kate deploy`, in the site's namespace | the certificate for the site's domain |
+| Gateway `site` | `./kate deploy`, in the site's namespace | one HTTPS listener (port 8443) for the domain, with `site-tls` |
+| HTTPRoutes `typo3`, `media` | the chart / `./kate deploy` | attach to the site's Gateway, only for its hostname (the node-IP site's routes: any hostname, also on `public-gateway`) |
 
 Traefik serves every Gateway on port 443 and picks the certificate by the name the browser asks for (SNI). infra's `public-gateway` in `gateway-system` keeps the http→https redirect and the `https` listener for the node IPs with the cluster CA.
 
@@ -54,16 +54,16 @@ acme:
 **6. Deploy** the site. It creates its Gateway and Certificate, waits until the certificate is `Ready` (DNS-01 takes a few minutes the first time), and sets the media and Mercure URLs to the domain:
 
 ```sh
-cd .. && k8s/deploy.sh kate --no-build
+cd .. && ./kate deploy kate --no-build
 ```
 
 Start with `staging`: those certificates are untrusted on purpose, but failures don't count against [Let's Encrypt's rate limits](https://letsencrypt.org/docs/rate-limits/). Once it works, set `production` and deploy again.
 
 ## Another site
 
-Each site with a domain repeats steps 1, 5 and 6: an A record for its domain (and the router forwarding below, if it isn't there yet), `domain` and `acme.environment` in its `projects/<name>/kate.yaml`, then `k8s/deploy.sh <name>`. The token in the root `kate.yaml` must be allowed to edit the domain's zone. `tofu` doesn't need to run again.
+Each site with a domain repeats steps 1, 5 and 6: an A record for its domain (and the router forwarding below, if it isn't there yet), `domain` and `acme.environment` in its `projects/<name>/kate.yaml`, then `./kate deploy <name>`. The token in the root `kate.yaml` must be allowed to edit the domain's zone. `tofu` doesn't need to run again.
 
-`k8s/deploy.sh` refuses a domain that another site already uses.
+`./kate deploy` refuses a domain that another site already uses.
 
 Only one site answers on the node IPs: the one with `nodeIPs: true`, or a site without a domain. Its routes have no hostname, so they match any name. Traefik ranks routes mostly by path length, not by hostname: a path that another site doesn't route itself can end up at the node-IP site.
 
@@ -72,7 +72,7 @@ Only one site answers on the node IPs: the one with `nodeIPs: true`, or a site w
 Before sites had their own Gateways, `infra/` served the domain with an `https-domain` listener and a Certificate in `gateway-system`. On such a cluster, in this order:
 
 1. `git pull`
-2. `k8s/deploy.sh kate`: creates the Gateway `site` and its certificate in `typo3`. The old listener keeps serving the domain meanwhile.
+2. `./kate deploy kate`: creates the Gateway `site` and its certificate in `typo3`. The old listener keeps serving the domain meanwhile.
 3. `tofu apply` in `infra/`: removes the `https-domain` listener and the Certificate in `gateway-system`
 4. optional: `kubectl -n gateway-system delete secret site-tls` (the old certificate)
 5. remove `domain` and `acme.environment` from the root `kate.yaml` (`tofu` warns while they are there)

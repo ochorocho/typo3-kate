@@ -1,12 +1,12 @@
 # Our 3-node libvirt/k3s cluster (infra/). Based on values/production.yaml of
-# bmack/typo3-k8s-starter; k8s/deploy.sh adds image.repository and image.digest:
+# bmack/typo3-k8s-starter; ./kate deploy adds image.repository and image.digest:
 #   helm upgrade --install typo3 k8s/charts/typo3 -n typo3 -f k8s/values/cluster.yaml \
 #     --set image.repository=<master-ip>:30500/<project> --set image.digest=sha256:...
 
 typo3:
   trustedHostsPattern: ".*"           # the site answers on every node IP
   reverseProxyIP: "10.42.0.0/16"      # Traefik runs as a pod in k3s' pod network
-  existingSecret: typo3-env           # created once by k8s/deploy.sh, never by Helm
+  existingSecret: typo3-env           # created once by ./kate deploy, never by Helm
   logLevel: notice
   mailFrom: noreply@typo3-kate.local
   # S3 storage 2 on Garage in the cluster (k8s/platform/garage.yaml); key and
@@ -17,7 +17,7 @@ typo3:
     TYPO3_S3_REGION: garage
     TYPO3_S3_ENDPOINT: http://garage:3900
     TYPO3_S3_PATH_STYLE: "true"
-    # TYPO3_S3_PUBLIC_URL: set by k8s/site-values.sh from the project's domain
+    # TYPO3_S3_PUBLIC_URL: set by ./kate values from the project's domain
 
 database:
   host: typo3-mariadb                 # single instance: the operator's plain Service
@@ -50,8 +50,8 @@ topologySpread:
 
 httpRoute:
   enabled: true
-  # parentRefs and hostnames come from k8s/site-values.sh: the project's own
-  # Gateway "site" (k8s/project-manifests.sh) for its domain and, for the one
+  # parentRefs and hostnames come from ./kate values: the project's own
+  # Gateway "site" (./kate manifests) for its domain and, for the one
   # project on the node IPs, infra's public-gateway.
 
 persistence:
@@ -66,7 +66,7 @@ scheduler:
   schedule: "* * * * *"
 
 # Real-time hub under /.well-known/mercure; JWT keys are in typo3-env and
-# publicUrl comes from the project's domain (k8s/site-values.sh).
+# publicUrl comes from the project's domain (./kate values).
 mercure:
   enabled: true
 

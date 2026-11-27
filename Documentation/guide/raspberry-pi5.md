@@ -78,7 +78,7 @@ git clone https://github.com/ochorocho/typo3-kate.git ~/typo3-kate
 cd ~/typo3-kate/infra
 tofu init
 tofu apply -var-file=raspberrypi5.tfvars
-cd .. && ./k8s/deploy.sh kate               # builds the arm64 TYPO3 image on the Pi
+cd .. && ./kate deploy kate               # builds the arm64 TYPO3 image on the Pi
 ```
 
 The first image build compiles PHP extensions on the Pi: allow a while.

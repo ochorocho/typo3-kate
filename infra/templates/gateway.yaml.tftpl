@@ -2,7 +2,7 @@
 # public-gateway serves plain HTTP (redirect to HTTPS) and HTTPS on the node
 # IPs with the cluster CA, for the one project that answers there. Projects
 # with a domain bring their own Gateway and certificate in their namespace
-# (k8s/project-manifests.sh); Traefik serves them all on port 443.
+# (./kate manifests); Traefik serves them all on port 443.
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
