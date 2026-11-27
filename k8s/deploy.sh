@@ -52,7 +52,7 @@ if [ "${ALL}" = true ]; then
   for dir in "${ROOT}"/projects/*/; do
     project="$(basename "${dir}")"
     [[ "${project}" == _* ]] && continue   # _example and other templates
-    "$0" "${project}" "${flags[@]}"
+    "$0" "${project}" ${flags[@]+"${flags[@]}"}
   done
   exit 0
 fi
@@ -232,6 +232,26 @@ if [ -z "$(k get secret typo3-env -o jsonpath='{.data.MERCURE_PUBLISHER_JWT_KEY}
     --arg pub "$(openssl rand -hex 32)" \
     --arg sub "$(openssl rand -hex 32)" \
     '{stringData: {MERCURE_PUBLISHER_JWT_KEY: $pub, MERCURE_SUBSCRIBER_JWT_KEY: $sub}}')" >/dev/null
+fi
+
+# --- 2b. routing: Gateway, certificate, media route -----------------------------
+step "Routing ${DOMAIN:-(node IPs only)}"
+route_args=()
+if [ -n "${DOMAIN}" ]; then
+  issuer=letsencrypt-staging
+  [ "${ACME_ENVIRONMENT}" = staging ] || issuer=letsencrypt
+  route_args+=(--hostname "${DOMAIN}" --issuer "${issuer}")
+fi
+[ "${NODE_IPS}" = false ] || route_args+=(--node-ips)
+"${ROOT}/k8s/project-manifests.sh" ${route_args[@]+"${route_args[@]}"} | k apply -f -
+if [ -n "${DOMAIN}" ]; then
+  # DNS-01 takes a few minutes the first time (TXT record, propagation)
+  if ! k wait certificate/site --for=condition=Ready --timeout=10m; then
+    k describe certificate site | tail -15 >&2 || true
+    kubectl get challenges -n "${NAMESPACE}" -o wide >&2 || true
+    fail "no certificate for ${DOMAIN}: is it in a Hetzner DNS zone that the token in ./kate.yaml may edit?"
+  fi
+  k wait gateway/site --for=condition=Programmed --timeout=2m
 fi
 
 # --- 3. platform ----------------------------------------------------------------

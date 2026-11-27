@@ -16,7 +16,7 @@
 **Goal**: k8s/project-manifests.sh renders Gateway site, Certificate site, HTTPRoute media per namespace; deploy.sh applies and waits.
 **Success Criteria**: gateway/site Programmed, certificate/site Ready; kate unchanged.
 **Tests**: kubeconform on rendered manifests; live checks on the Odroid.
-**Status**: Not Started
+**Status**: Complete in code; live check on the Odroid pending
 
 ## Stage 4: Infra stops owning the domain
 **Goal**: no https-domain listener or Certificate site in infra; ACME issuers only need the token.

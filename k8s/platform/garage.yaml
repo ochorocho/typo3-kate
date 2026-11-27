@@ -168,29 +168,4 @@ spec:
       ports:
         - protocol: TCP
           port: 3900
----
-# https://<site>/media/<key> -> Garage web endpoint, bucket "media".
-# Longer than the chart's "/" route, so it wins for /media.
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: media
-spec:
-  parentRefs:
-    - name: public-gateway
-      namespace: gateway-system
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /media/
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            hostname: media
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
-      backendRefs:
-        - name: garage
-          port: 3902
+# The route https://<site>/media/ -> Garage is per project: k8s/project-manifests.sh

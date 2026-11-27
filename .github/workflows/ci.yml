@@ -46,6 +46,10 @@ jobs:
                     --set image.repository="ci/${project}" --set image.tag=ci)
             helm lint k8s/charts/typo3 "${values[@]}"
             helm template typo3 k8s/charts/typo3 -n "${project}" "${values[@]}" > "rendered-${project}.yaml"
+            routing=()
+            [ -z "${domain}" ] || routing+=(--hostname "${domain}" --issuer letsencrypt-staging)
+            [ "$(yq -r '.nodeIPs // false' "${file}")" = false ] || routing+=(--node-ips)
+            k8s/project-manifests.sh "${routing[@]}" > "rendered-${project}-routing.yaml"
           done
       - name: Kubernetes schemas
         run: |
