@@ -5,7 +5,7 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 const base = process.env.DOCS_BASE ?? '/'
 
 export default withMermaid(defineConfig({
-  title: 'K8s on libvirt',
+  title: 'TYPO3 Kate',
   description: '3-node Kubernetes cluster on KVM (Odroid H2) and macOS with TYPO3, built with OpenTofu',
   base,
   // head entries don't get the base path by themselves

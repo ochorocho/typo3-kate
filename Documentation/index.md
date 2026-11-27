@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: K8s on libvirt
+  name: TYPO3 Kate
   image:
     src: /logo.svg
     alt: Three connected cluster nodes, each holding a site
