@@ -10,11 +10,12 @@
         }
     ],
     "require": {
-        "bmack/k8s-health": "@dev",
-        "bmack/k8s-starter": "@dev",
         "b13/distributed-locks": "dev-main",
         "b13/stderr-logging": "dev-main",
         "b13/typo3-s3-driver": "dev-main",
+        "bmack/k8s-health": "@dev",
+        "bmack/k8s-starter": "@dev",
+        "ochorocho/typo3-mercure": "@dev",
         "typo3/cms-backend": "dev-main",
         "typo3/cms-belog": "dev-main",
         "typo3/cms-beuser": "dev-main",
@@ -49,6 +50,7 @@
         "typo3/cms-workspaces": "dev-main"
     },
     "require-dev": {
+        "phpunit/phpunit": "^12.0",
         "typo3/cms-adminpanel": "dev-main",
         "typo3/cms-lowlevel": "dev-main"
     },
@@ -60,5 +62,11 @@
         "sort-packages": true
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "autoload-dev": {
+        "psr-4": {
+            "Bmack\\K8sHealth\\Tests\\": "packages/k8s-health/Tests/",
+            "Ochorocho\\Mercure\\Tests\\": "packages/typo3-mercure/Tests/"
+        }
+    }
 }

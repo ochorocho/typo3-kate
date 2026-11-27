@@ -5,6 +5,10 @@ Frontend: {{ include "typo3.fullname" . }}-frontend
 Backend:  {{ include "typo3.fullname" . }}-backend  (routed via {{ .Values.backend.path }})
 {{- end }}
 
+{{- if .Values.mercure.enabled }}
+Mercure:  {{ include "typo3.fullname" . }}-mercure  (routed via {{ .Values.mercure.path }}, public URL {{ .Values.mercure.publicUrl }})
+{{- end }}
+
 Check the rollout:
   kubectl rollout status deploy/{{ include "typo3.fullname" . }}-frontend -n {{ .Release.Namespace }}
 

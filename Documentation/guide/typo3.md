@@ -64,12 +64,38 @@ kubectl -n typo3 get pods -o wide
 | `typo3-frontend` | 2 (HPA 2–4) | website, one pod per worker |
 | `typo3-backend` | 1 | `/typo3` for editors, routed separately |
 | `typo3-scheduler` | CronJob every 15 min | TYPO3 scheduler |
+| `typo3-messenger` | 1 | `messenger:consume doctrine`, async messages |
+| `typo3-mercure` | 1, optional (`mercure.enabled`) | Mercure hub, real-time push under `/.well-known/mercure` |
 | `typo3-mariadb-0` | 1 | MariaDB 11.8 via mariadb-operator |
 | `typo3-valkey-0` | 1 | sessions and locks (persistent) |
 | `typo3-valkey-cache` | 1 | TYPO3 caches (in memory only) |
 | `garage-0` | 1 | S3 for storage 2 "Media (S3)" (Garage) |
 
 Files in `fileadmin/` and `typo3temp/assets/` are on NFS volumes that all pods share.
+
+### Service status in the backend
+
+Admins see the state of the services in the backend top bar, in **System Information** (the info icon). The badge turns yellow or red when something is wrong.
+
+| Row | From | Red when |
+|---|---|---|
+| Pod | `bmack/k8s-health` | – (the pod that served the backend) |
+| Valkey (sessions, locks), Valkey (caches) | `bmack/k8s-health` | no PONG within 1 s |
+| Messenger worker | `bmack/k8s-health`, heartbeats of `messenger:consume` every 30 s | no heartbeat for 90 s, or stopped for more than a minute |
+| Message queue | `bmack/k8s-health`, `sys_messenger_messages` | oldest waiting message older than 30 min (yellow: 5 min) |
+| Mercure hub | `ochorocho/typo3-mercure` | the hub doesn't answer at `MERCURE_URL` |
+
+Only database and Valkey count for `/_health/ready`: pages work without the worker and the hub.
+
+### Mercure
+
+`ochorocho/typo3-mercure` (`packages/typo3-mercure`) connects TYPO3 to the hub. It reads the variables the chart sets (`MERCURE_URL`, `MERCURE_PUBLIC_URL`, the JWT keys, `MERCURE_JWT_ISSUER`). Turn the hub on with `mercure.enabled: true` in `k8s/values/cluster.yaml`, then try it:
+
+```sh
+kubectl -n typo3 exec deploy/typo3-backend -- vendor/bin/typo3 mercure:publish https://kate.ochorocho.dev/demo '{"hello":"world"}'
+```
+
+Usage from PHP and Fluid: [packages/typo3-mercure/README.md](https://github.com/ochorocho/typo3-kate/tree/main/packages/typo3-mercure).
 
 ## S3 storage ("Media (S3)")
 

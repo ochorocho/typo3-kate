@@ -49,6 +49,16 @@ spec:
           port: {{ .Values.database.port }}
         - protocol: TCP
           port: {{ .Values.valkey.port }}
+    {{- if .Values.mercure.enabled }}
+    # Publish to the Mercure hub
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "typo3.selectorLabels" (dict "ctx" . "component" "mercure") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.mercure.port }}
+    {{- end }}
     {{- if .Values.networkPolicy.allowExternalEgress }}
     # HTTPS + SMTP submission to the outside world (S3, APIs, mail relay)
     - to:
@@ -65,4 +75,33 @@ spec:
         - protocol: TCP
           port: 587
     {{- end }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled .Values.mercure.enabled }}
+---
+# Adds to the policy above: the gateway and the TYPO3 pods may reach the hub
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "typo3.fullname" . }}-mercure
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mercure
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "typo3.selectorLabels" (dict "ctx" . "component" "mercure") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingressFromNamespaceLabels | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "typo3.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.mercure.port }}
 {{- end }}

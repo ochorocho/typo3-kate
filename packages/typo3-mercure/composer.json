@@ -1,0 +1,33 @@
+{
+    "name": "ochorocho/typo3-mercure",
+    "type": "typo3-cms-extension",
+    "description": "Mercure for TYPO3: publish real-time updates with symfony/mercure, synchronously or through TYPO3's message bus, and subscribe from Fluid with authorization cookies",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": "^8.3",
+        "lcobucci/jwt": "^5.5",
+        "symfony/mercure": "^0.10",
+        "typo3/cms-backend": "^14.0 || dev-main",
+        "typo3/cms-core": "^14.0 || dev-main",
+        "typo3/cms-fluid": "^14.0 || dev-main",
+        "typo3/cms-frontend": "^14.0 || dev-main"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ochorocho\\Mercure\\": "Classes/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Ochorocho\\Mercure\\Tests\\": "Tests/"
+        }
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "mercure"
+        }
+    }
+}

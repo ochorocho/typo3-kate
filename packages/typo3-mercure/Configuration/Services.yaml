@@ -1,0 +1,44 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  Ochorocho\Mercure\:
+    resource: '../Classes/*'
+    exclude:
+      - '../Classes/Configuration/MercureConfiguration.php'
+      - '../Classes/Hub/HubFactory.php'
+      - '../Classes/Hub/UnconfiguredHub.php'
+      - '../Classes/Http/SubscriberGrants.php'
+      - '../Classes/Http/SubscriptionUrl.php'
+
+  Ochorocho\Mercure\Configuration\MercureConfiguration:
+    factory: ['Ochorocho\Mercure\Configuration\MercureConfiguration', 'fromExtensionConfiguration']
+
+  Ochorocho\Mercure\Hub\HubStatus:
+    arguments:
+      $httpClient: null
+
+  # symfony/mercure, wired as MercureBundle does it in Symfony
+
+  Symfony\Component\Mercure\HubInterface:
+    public: true
+    factory: ['Ochorocho\Mercure\Hub\HubFactory', 'create']
+
+  Symfony\Component\Mercure\HubRegistry:
+    public: true
+    arguments: ['@Symfony\Component\Mercure\HubInterface']
+
+  Symfony\Component\Mercure\Authorization:
+    public: true
+
+  Symfony\Component\Mercure\Discovery:
+    public: true
+
+  # Handles Update messages dispatched on TYPO3's message bus, in the worker
+  # when ext_localconf.php routes them to a transport
+  Symfony\Component\Mercure\Messenger\UpdateHandler:
+    arguments: ['@Symfony\Component\Mercure\HubInterface']
+    tags:
+      - name: messenger.message_handler
