@@ -1,0 +1,115 @@
+{{- if .Values.mercure.enabled }}
+{{- $cfg := .Values.mercure }}
+{{- $directives := list (printf "resource_identifier %s" (include "typo3.mercurePublicUrl" .)) }}
+{{- if $cfg.anonymous }}{{- $directives = append $directives "anonymous" }}{{- end }}
+{{- with $cfg.extraDirectives }}{{- $directives = append $directives (trim .) }}{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "typo3.fullname" . }}-mercure
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mercure
+spec:
+  # bolt keeps state in the pod: never run two hubs side by side
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "typo3.selectorLabels" (dict "ctx" . "component" "mercure") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "typo3.selectorLabels" (dict "ctx" . "component" "mercure") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "typo3.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mercure
+          image: "{{ $cfg.image.repository }}:{{ $cfg.image.tag }}"
+          imagePullPolicy: {{ $cfg.image.pullPolicy }}
+          env:
+            # Port only: plain HTTP, TLS ends at the gateway
+            - name: SERVER_NAME
+              value: ":{{ $cfg.port }}"
+            - name: MERCURE_TRUSTED_ISSUERS
+              value: {{ include "typo3.mercureIssuer" . | quote }}
+            - name: MERCURE_PUBLISHER_JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "typo3.secretName" . }}
+                  key: MERCURE_PUBLISHER_JWT_KEY
+            - name: MERCURE_PUBLISHER_JWT_ALG
+              value: HS256
+            - name: MERCURE_SUBSCRIBER_JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "typo3.secretName" . }}
+                  key: MERCURE_SUBSCRIBER_JWT_KEY
+            - name: MERCURE_SUBSCRIBER_JWT_ALG
+              value: HS256
+            - name: MERCURE_EXTRA_DIRECTIVES
+              value: {{ join "\n" $directives | quote }}
+          ports:
+            - name: http
+              containerPort: {{ $cfg.port }}
+              protocol: TCP
+          # Health lives on Caddy's admin API (127.0.0.1:2019 only), hence exec.
+          # 127.0.0.1, not localhost: BusyBox wget prefers ::1.
+          readinessProbe:
+            exec:
+              command: ["wget", "-q", "--spider", "http://127.0.0.1:2019/mercure/health/ready"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            exec:
+              command: ["wget", "-q", "--spider", "http://127.0.0.1:2019/mercure/health/live"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $cfg.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: config
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "typo3.fullname" . }}-mercure
+  labels:
+    {{- include "typo3.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mercure
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "typo3.selectorLabels" (dict "ctx" . "component" "mercure") | nindent 4 }}
+{{- end }}

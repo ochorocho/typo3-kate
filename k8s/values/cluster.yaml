@@ -67,7 +67,12 @@ persistence:
     existingClaim: typo3-typo3temp-assets
 
 scheduler:
-  schedule: "*/15 * * * *"
+  schedule: "* * * * *"
+
+# Real-time hub under /.well-known/mercure; JWT keys are in typo3-env and
+# publicUrl comes from the domain in kate.yaml (both by k8s/deploy.sh).
+mercure:
+  enabled: true
 
 networkPolicy:
   enabled: true

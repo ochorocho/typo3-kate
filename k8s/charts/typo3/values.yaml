@@ -210,6 +210,46 @@ messenger:
       memory: 512Mi
 
 # -----------------------------------------------------------------------------
+# Mercure hub (optional): real-time push to browsers via Server-Sent Events.
+# Served on the site's own host under `path`, so there is no CORS and no
+# extra hostname. TYPO3 publishes through the internal Service.
+#
+# The JWT keys come from the TYPO3 Secret (typo3.existingSecret or typo3.secret):
+#   MERCURE_PUBLISHER_JWT_KEY, MERCURE_SUBSCRIBER_JWT_KEY (HS256, >= 32 bytes)
+# TYPO3 pods get them through envFrom, plus these variables from the chart:
+#   MERCURE_URL         internal hub URL, for publishing
+#   MERCURE_PUBLIC_URL  hub URL for browsers (= publicUrl)
+#   MERCURE_JWT_ISSUER  the `iss` claim tokens must carry (= trustedIssuer)
+# Tokens also need `aud` = publicUrl and an `exp` claim (Mercure 1.x).
+#
+# One replica only: the default bolt transport keeps state in the pod, so
+# more replicas would not see each other's updates.
+# -----------------------------------------------------------------------------
+mercure:
+  enabled: false
+  image:
+    repository: dunglas/mercure
+    tag: v1.1.6
+    pullPolicy: IfNotPresent
+  path: /.well-known/mercure
+  # Public hub URL, e.g. https://www.example.com/.well-known/mercure.
+  # Pinned as the token audience (resource_identifier). Required.
+  publicUrl: ""
+  # Token issuer; empty = origin of publicUrl (https://www.example.com)
+  trustedIssuer: ""
+  # Let subscribers without a token receive public updates
+  anonymous: false
+  # More Mercure directives, one per line (e.g. "subscriptions")
+  extraDirectives: ""
+  port: 8080
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# -----------------------------------------------------------------------------
 # Storage
 # Target state: fileadmin on S3 via a FAL driver -> nothing here is needed.
 # Migration path: mount an existing RWX volume (NFS/EFS/CephFS) first.

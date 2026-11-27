@@ -118,6 +118,14 @@ if [ -z "$(k get secret typo3-env -o jsonpath='{.data.TYPO3_S3_KEY}')" ]; then
     --arg secret "$(secret_value typo3-garage secret-key)" \
     '{stringData: {TYPO3_S3_KEY: $key, TYPO3_S3_SECRET: $secret}}')" >/dev/null
 fi
+# Mercure JWT keys: always present, so mercure.enabled can be switched on any time.
+if [ -z "$(k get secret typo3-env -o jsonpath='{.data.MERCURE_PUBLISHER_JWT_KEY}')" ]; then
+  echo "Adding the Mercure JWT keys to typo3-env"
+  k patch secret typo3-env --type merge -p "$(jq -n \
+    --arg pub "$(openssl rand -hex 32)" \
+    --arg sub "$(openssl rand -hex 32)" \
+    '{stringData: {MERCURE_PUBLISHER_JWT_KEY: $pub, MERCURE_SUBSCRIBER_JWT_KEY: $sub}}')" >/dev/null
+fi
 
 # --- 3. platform ----------------------------------------------------------------
 step "MariaDB, Valkey, volumes"

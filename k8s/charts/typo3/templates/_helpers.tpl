@@ -50,6 +50,20 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 {{- end -}}
 
+{{/* Mercure: public hub URL (token audience) and trusted token issuer */}}
+{{- define "typo3.mercurePublicUrl" -}}
+{{- required "mercure.publicUrl is required, e.g. https://www.example.com/.well-known/mercure" .Values.mercure.publicUrl -}}
+{{- end -}}
+
+{{- define "typo3.mercureIssuer" -}}
+{{- if .Values.mercure.trustedIssuer -}}
+{{- .Values.mercure.trustedIssuer -}}
+{{- else -}}
+{{- $url := urlParse (include "typo3.mercurePublicUrl" .) -}}
+{{- printf "%s://%s" $url.scheme $url.host -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "typo3.image" -}}
 {{- if .Values.image.digest -}}
 {{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
@@ -95,6 +109,14 @@ app.kubernetes.io/component: {{ .component }}
 - name: TYPO3_VALKEY_USER
   value: {{ . | quote }}
 {{- end }}
+{{- end }}
+{{- if .Values.mercure.enabled }}
+- name: MERCURE_URL
+  value: {{ printf "http://%s-mercure:%v%s" (include "typo3.fullname" .) .Values.service.port .Values.mercure.path | quote }}
+- name: MERCURE_PUBLIC_URL
+  value: {{ include "typo3.mercurePublicUrl" . | quote }}
+- name: MERCURE_JWT_ISSUER
+  value: {{ include "typo3.mercureIssuer" . | quote }}
 {{- end }}
 {{- range $key, $value := .Values.typo3.extraEnv }}
 - name: {{ $key }}

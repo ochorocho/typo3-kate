@@ -28,6 +28,16 @@ spec:
         - name: {{ include "typo3.fullname" . }}-backend
           port: {{ .Values.service.port }}
     {{- end }}
+    {{- if .Values.mercure.enabled }}
+    # Server-Sent Events -> Mercure hub
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.mercure.path }}
+      backendRefs:
+        - name: {{ include "typo3.fullname" . }}-mercure
+          port: {{ .Values.service.port }}
+    {{- end }}
     # Everybody else -> frontend Deployment
     - matches:
         - path:

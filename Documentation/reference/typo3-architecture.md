@@ -20,7 +20,8 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `k8s/platform/storage.yaml` | from `examples/storage`: StorageClass `nfs` |
 | `k8s/platform/garage.yaml` | new: Garage v2.6 single node for storage 2, a NetworkPolicy that lets TYPO3 reach it (the chart's own policy doesn't), and the `/media/` route |
 | `infra/templates/gateway.yaml.tftpl` | from `examples/gateway`: Traefik's Gateway API provider, certificate from the cluster CA instead of cert-manager |
-| `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes |
+| `k8s/values/cluster.yaml` | from `values/production.yaml`: our hosts, Secret, services, volumes, Mercure on |
+| `k8s/charts/typo3/` | messenger worker on by default; optional Mercure hub (`mercure.enabled`) with its route under `/.well-known/mercure` and NetworkPolicy |
 
 | New | Why |
 |---|---|
@@ -28,6 +29,8 @@ The TYPO3 layer is taken from [bmack/typo3-k8s-starter](https://github.com/bmack
 | `k8s/deploy.sh` | the counterpart of his `ddev k8s-deploy`, for a real cluster |
 | `k8s/bootstrap.sql` | root page and sample pages (his `seed.sql` expects the root page from `typo3 setup`) |
 | `docker/prepare-settings.php` | brings `settings.php` up to date at build time, see below |
+| `packages/k8s-health` (extended) | besides the probes: Valkey, messenger worker (heartbeats in `tx_k8shealth_messenger_worker`) and queue in the backend's System Information menu |
+| `packages/typo3-mercure` | `ochorocho/typo3-mercure`: symfony/mercure wired into TYPO3 (services, message bus, Fluid, subscriber cookies, CLI), configured by the chart's `MERCURE_*` variables |
 
 ## Platform (set up by `infra/`)
 
