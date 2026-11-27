@@ -56,10 +56,7 @@ wait_until "NFS storage driver" "$k -n kube-system rollout status deploy/csi-nfs
 wait_until "mariadb-operator" "$k -n mariadb-system rollout status deploy/mariadb-operator --timeout=30s"
 wait_until "cert-manager" "$k -n cert-manager rollout status deploy/cert-manager-webhook --timeout=30s"
 if [ "${ACME_ENABLED:-0}" = 1 ]; then
-  if ! wait_until "Let's Encrypt certificate" "$k -n gateway-system wait certificate/site --for=condition=Ready --timeout=30s"; then
-    ssh_master "$k -n gateway-system describe certificate site | tail -15; $k get challenges -A -o wide" >&2 || true
-    exit 1
-  fi
+  wait_until "Let's Encrypt issuers" "$k wait clusterissuer/letsencrypt clusterissuer/letsencrypt-staging --for=condition=Ready --timeout=30s"
 fi
 wait_until "Gateway" "$k -n gateway-system wait gateway/public-gateway --for=condition=Programmed --timeout=30s"
 echo "Platform ready."

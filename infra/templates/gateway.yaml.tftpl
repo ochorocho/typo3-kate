@@ -1,7 +1,8 @@
 # Gateway API on k3s' bundled Traefik (the CRDs ship with k3s).
-# One shared Gateway for all projects, as in bmack/typo3-k8s-starter's
-# examples/gateway: projects attach to the https listener with an HTTPRoute,
-# plain HTTP only redirects to HTTPS.
+# public-gateway serves plain HTTP (redirect to HTTPS) and HTTPS on the node
+# IPs with the cluster CA, for the one project that answers there. Projects
+# with a domain bring their own Gateway and certificate in their namespace
+# (k8s/project-manifests.sh); Traefik serves them all on port 443.
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
@@ -93,24 +94,6 @@ spec:
           selector:
             matchLabels:
               gateway-access: public
-%{ if domain != "" ~}
-    # The public name with a Let's Encrypt certificate (acme.yaml.tftpl).
-    # Requests by IP address keep using the cluster CA listener above.
-    - name: https-domain
-      hostname: "${domain}"
-      protocol: HTTPS
-      port: 8443
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - name: site-tls
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchLabels:
-              gateway-access: public
-%{ endif ~}
 ---
 # Redirect plain HTTP to HTTPS for everything
 apiVersion: gateway.networking.k8s.io/v1

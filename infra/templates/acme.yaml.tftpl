@@ -1,6 +1,7 @@
 # Let's Encrypt via DNS-01 on Hetzner DNS: the cluster isn't reachable from
 # the internet, so cert-manager proves ownership with a TXT record instead.
-# Only present when acme_domain and hetzner_dns_token are set.
+# The ClusterIssuers serve every project's Certificate (k8s/project-manifests.sh).
+# Only present while Let's Encrypt is on (acme: in ../kate.yaml or a token).
 apiVersion: v1
 kind: Secret
 metadata:
@@ -33,17 +34,3 @@ spec:
                 name: hetzner
                 key: token
 %{ endfor ~}
----
-# Certificate for the Gateway's https-domain listener (gateway.yaml.tftpl).
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: site
-  namespace: gateway-system
-spec:
-  secretName: site-tls
-  dnsNames:
-    - ${domain}
-  issuerRef:
-    kind: ClusterIssuer
-    name: ${issuer}

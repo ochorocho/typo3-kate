@@ -22,7 +22,7 @@
 **Goal**: no https-domain listener or Certificate site in infra; ACME issuers only need the token.
 **Success Criteria**: tofu validate; public-gateway lists http/https only; kate still served.
 **Tests**: tofu fmt/validate, live checks.
-**Status**: Not Started
+**Status**: Complete in code; tofu apply on the Odroid pending (after deploy.sh kate)
 
 ## Stage 5: Second project, removal, docs
 **Goal**: projects/_example, removal procedure, capacity note, docs updated.

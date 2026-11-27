@@ -193,23 +193,6 @@ variable "cert_manager_version" {
   default     = "v1.21.3"
 }
 
-variable "acme_domain" {
-  description = "Public hostname for a Let's Encrypt certificate on the Gateway, e.g. kate.ochorocho.dev. Needs hetzner_dns_token. null = IP access with the cluster CA only. domain in ../kate.yaml wins."
-  type        = string
-  default     = null
-}
-
-variable "acme_environment" {
-  description = "Let's Encrypt environment: staging (untrusted test certificates, generous limits) or production."
-  type        = string
-  default     = "staging"
-
-  validation {
-    condition     = contains(["staging", "production"], var.acme_environment)
-    error_message = "acme_environment must be staging or production."
-  }
-}
-
 variable "acme_email" {
   description = "Optional contact address for the Let's Encrypt account."
   type        = string
@@ -217,7 +200,7 @@ variable "acme_email" {
 }
 
 variable "hetzner_dns_token" {
-  description = "Hetzner Console API token (read+write) for DNS-01. Required on every run while acme_domain is set. Put it in ../kate.yaml (acme.hetznerDnsToken, git-ignored) or pass it as TF_VAR_hetzner_dns_token, never in a committed file."
+  description = "Hetzner Console API token (read+write) for DNS-01. Turns on the Let's Encrypt ClusterIssuers for the projects' certificates and is then required on every run. Put it in ../kate.yaml (acme.hetznerDnsToken, git-ignored) or pass it as TF_VAR_hetzner_dns_token, never in a committed file."
   type        = string
   default     = null
   sensitive   = true
