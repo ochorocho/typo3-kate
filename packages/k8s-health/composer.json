@@ -1,15 +1,24 @@
 {
     "name": "bmack/k8s-health",
     "type": "typo3-cms-extension",
-    "description": "Health check middleware: liveness and readiness endpoints (/_health/live, /_health/ready) for Kubernetes and load balancers",
+    "description": "Health checks for Kubernetes: liveness and readiness endpoints (/_health/live, /_health/ready), plus the state of Valkey and the messenger worker in the backend's System Information menu",
     "license": "GPL-2.0-or-later",
     "require": {
-        "php": "^8.2",
+        "php": "^8.3",
+        "typo3/cms-backend": "^14.0 || dev-main",
         "typo3/cms-core": "^14.0 || dev-main"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.0"
     },
     "autoload": {
         "psr-4": {
             "Bmack\\K8sHealth\\": "Classes/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Bmack\\K8sHealth\\Tests\\": "Tests/"
         }
     },
     "extra": {
