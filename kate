@@ -9,6 +9,7 @@
 #              [--namespace <ns>] [--node-ips] [--from <site>]
 #   ./kate status
 #   ./kate remove [<site>] [--yes]
+#   ./kate password [<site>] [--copy]          backend login of a site
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
 #   ./kate autocomplete [bash|zsh] [--print]   tab completion for your shell
@@ -108,7 +109,10 @@ trap cleanup EXIT
 connect() {
   export KUBECONFIG="${KUBECONFIG:-${ROOT}/infra/kubeconfig}"
   [ -f "${KUBECONFIG}" ] || fail "no kubeconfig at ${KUBECONFIG} (run tofu apply in infra/)"
-  REGISTRY="${REGISTRY:-$(tofu -chdir="${ROOT}/infra" output -raw registry)}"
+  # tofu prints "No outputs found" to stdout (and exits 0) for a state without a cluster
+  REGISTRY="${REGISTRY:-$(tofu -chdir="${ROOT}/infra" output -raw registry 2>/dev/null || true)}"
+  [[ "${REGISTRY}" =~ ^[A-Za-z0-9.-]+:[0-9]+$ ]] \
+    || fail "no cluster in infra/'s state (tofu output registry is empty): run tofu apply in infra/, or set REGISTRY=<master-ip>:30500"
   MASTER_IP="${REGISTRY%%:*}"
   WORK_DIR="$(mktemp -d)"
   # macOS may block kubectl/helm from the VM subnet (Local Network privacy)
@@ -553,7 +557,7 @@ YAML
   gum style --border rounded --padding "0 1" >&2 \
     "TYPO3:    ${where}" \
     "Backend:  ${site_url}/typo3   user: $(secret_value typo3-admin username)" \
-    "Password: kubectl -n ${NAMESPACE} get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d"
+    "Password: ./kate password ${PROJECT}   (--copy: to the clipboard)"
 }
 
 # --- new: create a site in projects/<site>/ ------------------------------------------
@@ -647,6 +651,75 @@ cmd_status() {
   printf '%s\n' "${rows[@]}" | gum table --print --separator "," --columns "Site,Namespace,Domain,Release,Certificate,Pods"
 }
 
+# --- deployed sites ---------------------------------------------------------------------
+# deployed_sites: the sites the cluster knows (namespace annotation typo3-kate/project)
+deployed_sites() {
+  kubectl get namespaces -o json | jq -r '.items[].metadata.annotations["typo3-kate/project"] // empty' | sort -u
+}
+# site_namespace <site>: NAMESPACE of a deployed site. The annotation survives
+# a renamed or deleted projects/ folder, so it wins over kate.yaml.
+site_namespace() {
+  local project="$1" annotated
+  NAMESPACE="${project}"
+  if [ -f "${ROOT}/projects/${project}/kate.yaml" ]; then
+    NAMESPACE="$(yq -r ".namespace // \"${project}\"" "${ROOT}/projects/${project}/kate.yaml")"
+  fi
+  annotated="$(kubectl get namespaces -o json | jq -r --arg p "${project}" \
+    '.items[] | select(.metadata.annotations["typo3-kate/project"] == $p) | .metadata.name' | head -1)"
+  NAMESPACE="${annotated:-${NAMESPACE}}"
+  kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || fail "site ${project} is not deployed (no namespace ${NAMESPACE})"
+}
+
+# --- password: the backend login of a site ----------------------------------------------
+cmd_password() {
+  local project="" copy=false arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --copy) copy=true ;;
+      -*) fail "Usage: ./kate password [<site>] [--copy]" ;;
+      *) [ -z "${project}" ] || fail "one site at a time"; project="${arg}" ;;
+    esac
+  done
+  need kubectl jq yq tofu
+  local clip=""
+  if [ "${copy}" = true ]; then
+    local tool
+    for tool in pbcopy wl-copy xclip xsel; do
+      command -v "${tool}" >/dev/null && { clip="${tool}"; break; }
+    done
+    [ -n "${clip}" ] || fail "--copy needs pbcopy, wl-copy, xclip or xsel"
+    case "${clip}" in
+      xclip) clip="xclip -selection clipboard" ;;
+      xsel) clip="xsel --clipboard --input" ;;
+    esac
+  fi
+  connect
+  if [ -z "${project}" ]; then
+    local deployed
+    deployed="$(deployed_sites)"
+    [ -n "${deployed}" ] || fail "no deployed site found"
+    # shellcheck disable=SC2086 # one site per line
+    project="$(ask_choose "<site>" "Backend login of which site?" ${deployed})"
+  fi
+  site_namespace "${project}"
+  k get secret typo3-admin >/dev/null 2>&1 || fail "no Secret typo3-admin in ${NAMESPACE}"
+
+  local user password domain url
+  user="$(secret_value typo3-admin username)"
+  password="$(secret_value typo3-admin password)"
+  domain="$(kubectl get namespace "${NAMESPACE}" -o json | jq -r '.metadata.annotations["typo3-kate/domain"] // ""')"
+  url="https://${domain:-${MASTER_IP}}/typo3"
+  if [ "${copy}" = true ]; then
+    # shellcheck disable=SC2086 # the tool and its options
+    printf '%s' "${password}" | ${clip}
+    gum style --border rounded --padding "0 1" >&2 "Backend:  ${url}" "User:     ${user}" "Password: copied to the clipboard"
+  else
+    gum style --border rounded --padding "0 1" >&2 "Backend:  ${url}" "User:     ${user}"
+    # stdout, so ./kate password <site> | pbcopy also works
+    echo "${password}"
+  fi
+}
+
 # --- remove: a site's release, namespace and volumes ---------------------------------
 # The files in projects/<site>/ stay, and so do the NFS directories on the
 # master (Retain): delete those by hand once fileadmin is no longer needed.
@@ -664,22 +737,12 @@ cmd_remove() {
 
   if [ -z "${project}" ]; then
     local deployed
-    deployed="$(kubectl get namespaces -o json | jq -r '.items[].metadata.annotations["typo3-kate/project"] // empty' | sort -u)"
+    deployed="$(deployed_sites)"
     [ -n "${deployed}" ] || fail "no deployed site found"
     # shellcheck disable=SC2086 # one site per line
     project="$(ask_choose "<site>" "Remove which site from the cluster?" ${deployed})"
   fi
-  NAMESPACE="${project}"
-  if [ -f "${ROOT}/projects/${project}/kate.yaml" ]; then
-    NAMESPACE="$(yq -r ".namespace // \"${project}\"" "${ROOT}/projects/${project}/kate.yaml")"
-  fi
-  # Annotations survive a renamed or deleted projects/ folder: prefer them
-  local annotated
-  annotated="$(kubectl get namespaces -o json | jq -r --arg p "${project}" \
-    '.items[] | select(.metadata.annotations["typo3-kate/project"] == $p) | .metadata.name' | head -1)"
-  NAMESPACE="${annotated:-${NAMESPACE}}"
-
-  kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || fail "namespace ${NAMESPACE} does not exist"
+  site_namespace "${project}"
   local owner
   owner="$(kubectl get namespace "${NAMESPACE}" -o json | jq -r '.metadata.annotations["typo3-kate/project"] // ""')"
   [ "${owner}" = "${project}" ] \
@@ -729,7 +792,7 @@ _kate() {
     [ -e "${f}" ] && sites="${sites} $(basename "$(dirname "${f}")")"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
-    words="deploy new status remove values manifests autocomplete help"
+    words="deploy new status password remove values manifests autocomplete help"
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
@@ -741,6 +804,7 @@ _kate() {
           deploy) words="${sites} --all --no-build" ;;
           new) words="--domain --acme --namespace --node-ips --from" ;;
           remove) words="${sites} --yes" ;;
+          password) words="${sites} --copy" ;;
           values) words="--hostname --node-ips" ;;
           manifests) words="--hostname --issuer --node-ips" ;;
           autocomplete) words="bash zsh --print" ;;
@@ -768,6 +832,7 @@ _kate() {
       'deploy:build and roll out a site'
       'new:create a site from projects/_example'
       'status:every site and its state'
+      'password:backend login of a site'
       'remove:remove a site from the cluster'
       'values:Helm values of a site (CI)'
       'manifests:Gateway, certificate and media route of a site (CI)'
@@ -787,6 +852,7 @@ _kate() {
     deploy) compadd -a sites; compadd -- --all --no-build ;;
     new) compadd -- --domain --acme --namespace --node-ips --from ;;
     remove) compadd -a sites; compadd -- --yes ;;
+    password) compadd -a sites; compadd -- --copy ;;
     values) compadd -- --hostname --node-ips ;;
     manifests) compadd -- --hostname --issuer --node-ips ;;
     autocomplete) compadd bash zsh; compadd -- --print ;;
@@ -836,19 +902,20 @@ cmd_autocomplete() {
 }
 
 # --- main ------------------------------------------------------------------------------
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 command="${1:-}"
 [ $# -eq 0 ] || shift
 if [ -z "${command}" ]; then
   interactive || { usage; exit 1; }
-  command="$(gum choose --header "typo3-kate" deploy new status remove autocomplete help)"
+  command="$(gum choose --header "typo3-kate" deploy new status password remove autocomplete help)"
 fi
 case "${command}" in
   deploy) cmd_deploy "$@" ;;
   new) cmd_new "$@" ;;
   status) cmd_status "$@" ;;
   remove) cmd_remove "$@" ;;
+  password) cmd_password "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;
   autocomplete) cmd_autocomplete "$@" ;;

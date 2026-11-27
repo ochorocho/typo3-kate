@@ -55,7 +55,7 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 
 ```sh
 export KUBECONFIG=$PWD/infra/kubeconfig
-kubectl -n typo3 get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d; echo   # backend password
+./kate password kate                                                         # backend user and password (--copy: clipboard)
 infra/scripts/dashboard-token.sh 192.168.105.200                                            # dashboard token
 ```
 
@@ -87,6 +87,7 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ./kate deploy --all                                # every site in projects/
 ./kate new shop --domain shop.example.com          # a new site from the template
 ./kate status                                      # every site and its state
+./kate password kate --copy                        # backend password to the clipboard
 ./kate autocomplete                                # tab completion for zsh or bash (once)
 helm -n typo3 rollback typo3 <revision>              # go back to an earlier release
 kubectl -n typo3 logs deploy/typo3-frontend -f       # logs

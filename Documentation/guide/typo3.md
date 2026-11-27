@@ -26,7 +26,7 @@ Firefox has its own certificate store: Settings → Privacy & Security → Certi
 The admin password is in a Secret:
 
 ```sh
-kubectl -n typo3 get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d
+./kate password kate          # user and password; --copy puts the password on the clipboard
 ```
 
 ## Sites in `projects/`
@@ -89,6 +89,7 @@ Requirements: a cluster from `infra/` (`tofu apply`), plus [`gum`](https://githu
 ./kate deploy kate          # one site, no questions
 ./kate deploy --all         # every site in projects/, one after the other
 ./kate status               # every site: namespace, domain, release, certificate, pods
+./kate password kate        # backend user and password (--copy: to the clipboard)
 ./kate autocomplete         # tab completion for your shell, once
 ```
 
