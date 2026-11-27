@@ -8,7 +8,7 @@
 #   ./kate new [<site>] [--domain <domain>] [--acme staging|production]
 #              [--namespace <ns>] [--node-ips] [--from <site>]
 #   ./kate status
-#   ./kate remove [<site>] [--yes]
+#   ./kate remove [<site>] [--yes] [--delete-volumes]
 #   ./kate password [<site>] [--copy]          backend login of a site
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
@@ -721,14 +721,17 @@ cmd_password() {
 }
 
 # --- remove: a site's release, namespace and volumes ---------------------------------
-# The files in projects/<site>/ stay, and so do the NFS directories on the
-# master (Retain): delete those by hand once fileadmin is no longer needed.
+# The files in projects/<site>/ stay. The NFS volumes (fileadmin, typo3temp
+# assets) have reclaimPolicy Retain, so their data stays on the master unless
+# --delete-volumes switches them to Delete first: then csi-driver-nfs removes
+# the directories itself (onDelete: delete, its default).
 cmd_remove() {
-  local project="" yes=false arg
+  local project="" yes=false delete_volumes="" arg
   for arg in "$@"; do
     case "${arg}" in
       --yes) yes=true ;;
-      -*) fail "Usage: ./kate remove [<site>] [--yes]" ;;
+      --delete-volumes) delete_volumes=true ;;
+      -*) fail "Usage: ./kate remove [<site>] [--yes] [--delete-volumes]" ;;
       *) [ -z "${project}" ] || fail "one site at a time"; project="${arg}" ;;
     esac
   done
@@ -753,10 +756,29 @@ cmd_remove() {
   pvs="$(kubectl get pv -o json | jq -r --arg ns "${NAMESPACE}" \
     '.items[] | select(.spec.claimRef.namespace == $ns) | "\(.metadata.name) \(.spec.persistentVolumeReclaimPolicy) \(.spec.csi.volumeHandle // "-")"')"
 
+  local retained
+  retained="$(awk '$2 == "Retain" {print $1}' <<<"${pvs}")"
+  # Default no: asked on a terminal (unless --yes), kept otherwise
+  if [ -z "${delete_volumes}" ]; then
+    delete_volumes=false
+    if [ -n "${retained}" ] && [ "${yes}" = false ] && interactive; then
+      gum confirm --default=false \
+        "Also delete the retained volumes (fileadmin and typo3temp assets on the NFS server)?" \
+        && delete_volumes=true
+    fi
+  fi
+
   local lines=("Site ${project}: namespace ${NAMESPACE} with its database, files and Secrets")
   if [ -n "${pvs}" ]; then
     local line
     while read -r line; do lines+=("  volume ${line}"); done <<<"${pvs}"
+  fi
+  if [ -n "${retained}" ]; then
+    if [ "${delete_volumes}" = true ]; then
+      lines+=("Retained NFS volumes: DELETED, with their data")
+    else
+      lines+=("Retained NFS volumes: kept on the NFS server (--delete-volumes deletes them)")
+    fi
   fi
   gum style --border rounded --border-foreground 196 --padding "0 1" >&2 "${lines[@]}"
   if [ "${yes}" = false ]; then
@@ -765,17 +787,37 @@ cmd_remove() {
     [ "${answer}" = "${project}" ] || fail "not confirmed, nothing deleted"
   fi
 
+  local name
+  if [ "${delete_volumes}" = true ]; then
+    # Delete instead of Retain: releasing the claim then removes the PV and its directory
+    for name in ${retained}; do
+      kubectl patch pv "${name}" -p '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}' >/dev/null
+    done
+  fi
+
   wait_for "helm uninstall" sh -c "helm -n '${NAMESPACE}' uninstall '${RELEASE}' --wait 2>/dev/null || true"
   wait_for "deleting namespace ${NAMESPACE}" kubectl delete namespace "${NAMESPACE}" --wait --timeout=10m
-  # The Retain volumes are Released now; their objects can go, the data stays
-  local name policy handle
-  while read -r name policy handle; do
-    [ -n "${name}" ] && [ "${policy}" = Retain ] || continue
-    kubectl delete pv "${name}" --ignore-not-found >/dev/null
-    note "data kept on the NFS server: ${handle}"
-  done <<<"${pvs}"
+
+  local policy handle
+  if [ "${delete_volumes}" = true ]; then
+    for name in ${retained}; do
+      wait_for "deleting volume ${name} and its data" kubectl wait pv/"${name}" --for=delete --timeout=5m \
+        || fail "volume ${name} is still there: kubectl describe pv ${name} (the NFS driver deletes its directory)"
+    done
+  else
+    # The Retain volumes are Released now; their objects can go, the data stays
+    while read -r name policy handle; do
+      [ -n "${name}" ] && [ "${policy}" = Retain ] || continue
+      kubectl delete pv "${name}" --ignore-not-found >/dev/null
+      note "data kept on the NFS server: ${handle}"
+    done <<<"${pvs}"
+  fi
   step "Removed ${project}"
-  note "Left to you: its DNS record and, when no longer needed, the NFS data above (on the master under /srv/nfs)."
+  if [ "${delete_volumes}" = true ] || [ -z "${retained}" ]; then
+    note "Left to you: its DNS record."
+  else
+    note "Left to you: its DNS record and, when no longer needed, the NFS data above (on the master under /srv/nfs)."
+  fi
 }
 
 # --- autocomplete: tab completion for bash and zsh ----------------------------------
@@ -803,7 +845,7 @@ _kate() {
         case "${cmd}" in
           deploy) words="${sites} --all --no-build" ;;
           new) words="--domain --acme --namespace --node-ips --from" ;;
-          remove) words="${sites} --yes" ;;
+          remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
           values) words="--hostname --node-ips" ;;
           manifests) words="--hostname --issuer --node-ips" ;;
@@ -851,7 +893,7 @@ _kate() {
   case "${cmd}" in
     deploy) compadd -a sites; compadd -- --all --no-build ;;
     new) compadd -- --domain --acme --namespace --node-ips --from ;;
-    remove) compadd -a sites; compadd -- --yes ;;
+    remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
     values) compadd -- --hostname --node-ips ;;
     manifests) compadd -- --hostname --issuer --node-ips ;;
