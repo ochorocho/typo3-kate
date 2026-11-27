@@ -200,7 +200,7 @@ variable "acme_email" {
 }
 
 variable "hetzner_dns_token" {
-  description = "Hetzner Console API token (read+write) for DNS-01. Turns on the Let's Encrypt ClusterIssuers for the projects' certificates and is then required on every run. Put it in ../kate.yaml (acme.hetznerDnsToken, git-ignored) or pass it as TF_VAR_hetzner_dns_token, never in a committed file."
+  description = "Hetzner Console API token (read+write) for DNS-01, the provider hetzner (others: acme.providers in ../kate.yaml). Turns on the Let's Encrypt ClusterIssuers for the projects' certificates and is then required on every run. Put it in ../kate.yaml (acme.hetznerDnsToken, git-ignored) or pass it as TF_VAR_hetzner_dns_token, never in a committed file."
   type        = string
   default     = null
   sensitive   = true

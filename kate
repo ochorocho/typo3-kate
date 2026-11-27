@@ -12,6 +12,7 @@
 #   ./kate password [<site>] [--copy]          backend login of a site
 #   ./kate logs [<site>] [<component>] [-f] [--since 1h] [--tail 100]
 #   ./kate certificates                        the saved certificate copies
+#   ./kate dns [--ip <ipv4>] [--ttl 300] [--yes]  A record *.<acme.wildcard.domain>
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
 #   ./kate autocomplete [bash|zsh] [--print]   tab completion for your shell
@@ -77,7 +78,8 @@ list_projects() {
 valid_name() { [[ "$1" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]]; }
 
 # load_project <site>: PROJECT, PROJECT_DIR, PROJECT_FILE, NAMESPACE, DOMAIN,
-# ACME_ENVIRONMENT, NODE_IPS. Without a domain the site answers on the node IPs.
+# ACME_ENVIRONMENT, NODE_IPS, ADMIN_USERNAME, ADMIN_EMAIL. Without a domain the
+# site answers on the node IPs.
 load_project() {
   PROJECT="$1"
   valid_name "${PROJECT}" \
@@ -93,6 +95,15 @@ load_project() {
   [ -n "${DOMAIN}" ] || NODE_IPS=true
   [[ "${ACME_ENVIRONMENT}" == staging || "${ACME_ENVIRONMENT}" == production ]] \
     || fail "acme.environment in projects/${PROJECT}/kate.yaml must be staging or production"
+  # Its DNS provider for DNS-01 (acme.providers in ./kate.yaml)
+  ACME_PROVIDER="$(setting '.acme.provider // ""' "")"
+  # The backend admin `typo3 setup` creates on the first install
+  ADMIN_USERNAME="$(setting '.admin.username // "admin"' admin)"
+  ADMIN_EMAIL="$(setting '.admin.email // "admin@typo3-kate.local"' admin@typo3-kate.local)"
+  [[ "${ADMIN_USERNAME}" =~ ^[A-Za-z0-9._@-]{1,50}$ ]] \
+    || fail "admin.username in projects/${PROJECT}/kate.yaml: letters, digits and . _ @ - only, at most 50"
+  [[ "${ADMIN_EMAIL}" =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] \
+    || fail "admin.email in projects/${PROJECT}/kate.yaml is not an email address"
 }
 
 # --- cluster -----------------------------------------------------------------------
@@ -188,13 +199,14 @@ cmd_values() {
 # ReferenceGrant there) and no Certificate is printed.
 # Without a domain only the media route (node IPs, public-gateway).
 cmd_manifests() {
-  local usage="Usage: ./kate manifests [--hostname <domain> (--issuer <cluster-issuer> | --certificate-ref <namespace>/<secret>)] [--node-ips]"
-  local hostname="" issuer="" ref="" values_args=()
+  local usage="Usage: ./kate manifests [--hostname <domain> (--issuer <cluster-issuer> [--dns-provider <name>] | --certificate-ref <namespace>/<secret>)] [--node-ips]"
+  local hostname="" issuer="" ref="" provider="" values_args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --hostname) [ $# -ge 2 ] || fail "${usage}"; hostname="$2"; values_args+=(--hostname "$2"); shift 2 ;;
       --issuer) [ $# -ge 2 ] || fail "${usage}"; issuer="$2"; shift 2 ;;
       --certificate-ref) [ $# -ge 2 ] || fail "${usage}"; ref="$2"; shift 2 ;;
+      --dns-provider) [ $# -ge 2 ] || fail "${usage}"; provider="$2"; shift 2 ;;
       --node-ips) values_args+=(--node-ips); shift ;;
       *) fail "${usage}" ;;
     esac
@@ -236,7 +248,9 @@ YAML
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: site
+  name: site${provider:+
+  labels:
+    typo3-kate/dns-provider: ${provider}}
 spec:
   secretName: site-tls
   dnsNames:
@@ -318,7 +332,8 @@ cmd_deploy() {
   if [ "${asked}" = true ]; then
     gum style --border rounded --padding "0 1" >&2 \
       "Site:      ${PROJECT}" "Namespace: ${NAMESPACE}" \
-      "Domain:    ${DOMAIN:-(none, node IPs)}" "Let's Encrypt: ${ACME_ENVIRONMENT}" \
+      "Domain:    ${DOMAIN:-(none, node IPs)}" \
+      "Let's Encrypt: $(if [ -n "$(wildcard_for "${DOMAIN}")" ]; then echo "*.${WILDCARD_DOMAIN} (${WILDCARD_ENVIRONMENT}, ${WILDCARD_PROVIDER:-$(dns_default)})"; elif [ -n "${DOMAIN}" ]; then echo "${ACME_ENVIRONMENT}, DNS provider ${ACME_PROVIDER:-$(dns_default)}"; else echo "-"; fi)" \
       "Node IPs:  ${NODE_IPS}" "Image:     $([ "${build}" = true ] && echo "build a new one" || echo "keep the current one")"
     gum confirm "Deploy?" || fail "cancelled"
   fi
@@ -402,8 +417,11 @@ cmd_deploy() {
       --from-literal=typo3-password="${db_password}" >/dev/null
     k label secret typo3-mariadb k8s.mariadb.com/watch= >/dev/null
     k create secret generic typo3-valkey --from-literal=password="${valkey_password}" >/dev/null
+  fi
+  # The backend login (admin.username in kate.yaml; the first install creates it)
+  if ! k get secret typo3-admin >/dev/null 2>&1; then
     k create secret generic typo3-admin \
-      --from-literal=username=admin \
+      --from-literal=username="${ADMIN_USERNAME}" \
       --from-literal=password="$(openssl rand -base64 18 | tr -d '/+=')A1." >/dev/null
   fi
   # Garage (S3): created separately, so clusters from before Garage get it too.
@@ -439,14 +457,18 @@ cmd_deploy() {
     if [ -n "${wildcard}" ]; then
       # One certificate for *.<wildcard> in gateway-system, shared by the sites
       issuer="$(issuer_for "${WILDCARD_ENVIRONMENT}")"
+      local wildcard_provider="${WILDCARD_PROVIDER:-$(dns_default)}"
+      dns_provider_check "${wildcard_provider}" "acme.wildcard.provider"
       route_args+=(--hostname "${DOMAIN}" --certificate-ref gateway-system/wildcard-tls)
       restore_certificate gateway-system wildcard-tls "*.${wildcard}" "${issuer}" "wildcard.${wildcard}" \
         || warn_new_production "${issuer}" gateway-system wildcard-tls "*.${wildcard}" "acme.wildcard.environment in ./kate.yaml"
-      wildcard_manifests "${wildcard}" "${issuer}" | kubectl apply -f - >/dev/null
+      wildcard_manifests "${wildcard}" "${issuer}" "${wildcard_provider}" | kubectl apply -f - >/dev/null
       grant_manifest "${NAMESPACE}" | kubectl apply -f - >/dev/null
     else
       issuer="$(issuer_for "${ACME_ENVIRONMENT}")"
-      route_args+=(--hostname "${DOMAIN}" --issuer "${issuer}")
+      local provider="${ACME_PROVIDER:-$(dns_default)}"
+      dns_provider_check "${provider}" "acme.provider in projects/${PROJECT}/kate.yaml"
+      route_args+=(--hostname "${DOMAIN}" --issuer "${issuer}" --dns-provider "${provider}")
       # Before the Certificate exists: a saved copy spares a new order
       restore_certificate "${NAMESPACE}" site-tls "${DOMAIN}" "${issuer}" "${DOMAIN}" \
         || warn_new_production "${issuer}" "${NAMESPACE}" site-tls "${DOMAIN}" "acme.environment in projects/${PROJECT}/kate.yaml"
@@ -499,9 +521,17 @@ cmd_deploy() {
       mariadb -uroot -p"$(secret_value typo3-mariadb root-password)" typo3 "$@"
   }
   local first_install=false
+  local admin_in_secret
+  admin_in_secret="$(secret_value typo3-admin username)"
   if [ -z "$(mariadb_root -N -e "SHOW TABLES LIKE 'be_users'")" ]; then
     first_install=true
     step "Empty database: installing TYPO3"
+    # Not installed yet, so admin.username may still change (e.g. after a
+    # deploy that stopped before this step)
+    if [ "${admin_in_secret}" != "${ADMIN_USERNAME}" ]; then
+      k patch secret typo3-admin --type merge -p "$(jq -nc --arg u "${ADMIN_USERNAME}" '{stringData: {username: $u}}')" >/dev/null
+      note "Backend user: ${ADMIN_USERNAME} (was ${admin_in_secret} in the Secret)"
+    fi
     # Same image as the release. `typo3 setup` writes settings.php, which is
     # root-owned in the image: give it a writable copy of config/system without
     # settings.php (thrown away with the pod; the image keeps its own).
@@ -540,7 +570,7 @@ spec:
           --driver=mysqli --host=typo3-mariadb --port=3306 --dbname=typo3 --username=typo3
           --password="\$TYPO3_DB_PASSWORD"
           --admin-username="\$ADMIN_USERNAME" --admin-user-password="\$ADMIN_PASSWORD"
-          --admin-email=admin@typo3-kate.local --project-name="${PROJECT}"
+          --admin-email="${ADMIN_EMAIL}" --project-name="${PROJECT}"
       envFrom:
         - secretRef:
             name: typo3-env
@@ -569,6 +599,8 @@ YAML
     k delete pod typo3-install >/dev/null
     mariadb_root < "${ROOT}/k8s/bootstrap.sql"
     note "Root page, About and Contact created"
+  elif [ "${admin_in_secret}" != "${ADMIN_USERNAME}" ]; then
+    note "admin.username ${ADMIN_USERNAME} only applies to a new install: this site's backend user stays ${admin_in_secret}"
   fi
 
   # 6. helm
@@ -653,10 +685,57 @@ restore_certificate() {
 # site's Gateway refers to it, allowed by a ReferenceGrant "site-<namespace>".
 WILDCARD_DOMAIN=""
 WILDCARD_ENVIRONMENT=staging
+WILDCARD_PROVIDER=""
 if [ -f "${KATE_FILE}" ] && command -v yq >/dev/null; then
   WILDCARD_DOMAIN="$(yq -r '.acme.wildcard.domain // ""' "${KATE_FILE}")"
   WILDCARD_ENVIRONMENT="$(yq -r '.acme.wildcard.environment // "staging"' "${KATE_FILE}")"
+  WILDCARD_PROVIDER="$(yq -r '.acme.wildcard.provider // ""' "${KATE_FILE}")"
 fi
+
+# --- DNS providers ----------------------------------------------------------------------
+# acme.providers in ./kate.yaml, rendered into the ClusterIssuers by infra/dns.tf.
+# A Certificate labelled typo3-kate/dns-provider=<name> uses that provider; the
+# default one (same rule as dns.tf) also takes Certificates without a label.
+# dns_providers: their names; acme.hetznerDnsToken alone counts as "hetzner"
+dns_providers() {
+  [ -f "${KATE_FILE}" ] || return 0
+  local names
+  names="$(yq -r '(.acme.providers // {}) | keys | .[]' "${KATE_FILE}")"
+  if [ -n "$(yq -r '.acme.hetznerDnsToken // ""' "${KATE_FILE}")" ] && ! grep -qx hetzner <<<"${names}"; then
+    names="$(printf '%s\nhetzner' "${names}")"
+  fi
+  grep -v '^$' <<<"${names}" | sort -u || true
+}
+# dns_default: acme.defaultProvider, else hetzner, else the only one, else
+# hetzner (a cluster set up with the token from TF_VAR_hetzner_dns_token)
+dns_default() {
+  local names configured=""
+  names="$(dns_providers)"
+  [ ! -f "${KATE_FILE}" ] || configured="$(yq -r '.acme.defaultProvider // ""' "${KATE_FILE}")"
+  if [ -n "${configured}" ]; then echo "${configured}"
+  elif grep -qx hetzner <<<"${names}" || [ -z "${names}" ]; then echo hetzner
+  elif [ "$(wc -l <<<"${names}" | tr -d ' ')" -eq 1 ]; then echo "${names}"
+  else fail "several DNS providers in ./kate.yaml and no acme.defaultProvider: set one, or acme.provider in each site"
+  fi
+}
+# dns_provider_check <name> <where it is set>: fail unless ./kate.yaml defines it
+dns_provider_check() {
+  local names
+  # empty: dns_default failed inside $(...), which only ends that subshell
+  [ -n "$1" ] || fail "several DNS providers in ./kate.yaml and no acme.defaultProvider: set one, or $2"
+  [[ "$1" =~ ^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$ ]] \
+    || fail "DNS provider name '$1' ($2): letters, digits and - _ . only (it becomes a Kubernetes label)"
+  names="$(dns_providers)"
+  [ -z "${names}" ] || grep -qxF -- "$1" <<<"${names}" \
+    || fail "DNS provider $1 ($2) is not in acme.providers of ./kate.yaml: $(tr '\n' ' ' <<<"${names}")"
+}
+# dns_provider_type <name>: its type (acme.providers.<name>.type)
+dns_provider_type() {
+  local type=""
+  [ ! -f "${KATE_FILE}" ] || type="$(NAME="$1" yq -r '.acme.providers[strenv(NAME)].type // ""' "${KATE_FILE}")"
+  [ -n "${type}" ] || [ "$1" != hetzner ] || type=hetzner
+  echo "${type}"
+}
 
 issuer_for() { if [ "$1" = production ]; then echo letsencrypt; else echo letsencrypt-staging; fi; }
 
@@ -669,13 +748,15 @@ wildcard_for() {
   return 0
 }
 
-wildcard_manifests() {   # <wildcard domain> <issuer>
+wildcard_manifests() {   # <wildcard domain> <issuer> <dns provider>
   cat <<YAML
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: wildcard
   namespace: gateway-system
+  labels:
+    typo3-kate/dns-provider: $3
 spec:
   secretName: wildcard-tls
   dnsNames:
@@ -713,6 +794,133 @@ warn_new_production() {
   gum style --foreground 214 >&2 \
     "Ordering a new production certificate for $4: Let's Encrypt allows 5 per week for the same names." \
     "While you rebuild or experiment, set $5 to staging."
+}
+
+# --- dns: the wildcard DNS record ------------------------------------------------------
+# An A record *.<acme.wildcard.domain> at Hetzner DNS (Cloud API, the token
+# from acme.hetznerDnsToken), so a new site under the wildcard needs no DNS
+# step. Records of single names (kate.example.com) still win over it.
+HCLOUD_API=https://api.hetzner.cloud/v1
+
+# dns_token <provider>: its token from ./kate.yaml (acme.providers.<name>.token,
+# or acme.hetznerDnsToken), TF_VAR_hetzner_dns_token, else the cluster's copy
+dns_token() {
+  local token=""
+  [ ! -f "${KATE_FILE}" ] || token="$(NAME="$1" yq -r '.acme.providers[strenv(NAME)].token // .acme.hetznerDnsToken // ""' "${KATE_FILE}")"
+  token="${token:-${TF_VAR_hetzner_dns_token:-}}"
+  if [ -z "${token}" ]; then
+    connect
+    local secret
+    for secret in "dns-$1" hetzner; do
+      token="$(kubectl -n cert-manager get secret "${secret}" -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || true)"
+      [ -z "${token}" ] || break
+    done
+  fi
+  [ -n "${token}" ] || fail "no Hetzner DNS token for provider $1: acme.providers.$1.token in ./kate.yaml or TF_VAR_hetzner_dns_token"
+  echo "${token}"
+}
+
+# hcloud <method> <path> [<json body>]: the response body; fails on HTTP errors
+# except 404, which prints nothing
+hcloud() {
+  local method="$1" path="$2" body="${3:-}" out code
+  out="$(mktemp)"
+  code="$(curl -gsS -o "${out}" -w '%{http_code}' -X "${method}" \
+    -H "Authorization: Bearer ${DNS_TOKEN}" -H "Content-Type: application/json" \
+    ${body:+--data "${body}"} "${HCLOUD_API}${path}")" || { rm -f "${out}"; fail "Hetzner API not reachable"; }
+  if [ "${code}" = 404 ]; then rm -f "${out}"; return 0; fi
+  if [ "${code}" -ge 300 ]; then
+    local message
+    message="$(jq -r '.error.message // empty' "${out}" 2>/dev/null || true)"
+    rm -f "${out}"
+    fail "Hetzner API ${method} ${path}: HTTP ${code} ${message}"
+  fi
+  cat "${out}"
+  rm -f "${out}"
+}
+
+cmd_dns() {
+  local usage="Usage: ./kate dns [--ip <ipv4>] [--ttl <seconds>] [--yes]"
+  local ip="" ttl=300 yes=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --ip) [ $# -ge 2 ] || fail "${usage}"; ip="$2"; shift 2 ;;
+      --ttl) [ $# -ge 2 ] || fail "${usage}"; ttl="$2"; shift 2 ;;
+      --yes) yes=true; shift ;;
+      *) fail "${usage}" ;;
+    esac
+  done
+  need curl jq yq
+  [ -n "${WILDCARD_DOMAIN}" ] || fail "no acme.wildcard.domain in ./kate.yaml: the record is *.<that domain>"
+  [[ "${ttl}" =~ ^[0-9]+$ ]] || fail "--ttl takes seconds"
+  local provider="${WILDCARD_PROVIDER:-$(dns_default)}"
+  dns_provider_check "${provider}" "acme.wildcard.provider"
+  local type
+  type="$(dns_provider_type "${provider}")"
+  [ "${type}" = hetzner ] \
+    || fail "./kate dns only talks to Hetzner DNS; the wildcard's provider ${provider} is ${type:-unknown}: create the A record *.${WILDCARD_DOMAIN} at your DNS provider"
+  DNS_TOKEN="$(dns_token "${provider}")"
+
+  # The zone: the wildcard domain itself or the nearest parent Hetzner has
+  local zone="${WILDCARD_DOMAIN}" name="*"
+  while [ -z "$(hcloud GET "/zones/${zone}")" ]; do
+    [[ "${zone}" == *.*.* ]] || fail "no Hetzner DNS zone for ${WILDCARD_DOMAIN} (or a parent) that this token can see"
+    name="${name}.${zone%%.*}"
+    zone="${zone#*.}"
+  done
+
+  if [ -z "${ip}" ]; then
+    # An existing site under the wildcard already points at the right address
+    local p suggestion=""
+    for p in $(list_projects); do
+      load_project "${p}"
+      [ -n "$(wildcard_for "${DOMAIN}")" ] || continue
+      suggestion="$( (dig +short A "${DOMAIN}" 2>/dev/null || true) | grep -E '^[0-9.]+$' | head -1 || true)"
+      [ -z "${suggestion}" ] || { note "${DOMAIN} points at ${suggestion}"; break; }
+    done
+    if [ -z "${suggestion}" ]; then
+      suggestion="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+      [ -z "${suggestion}" ] || note "This machine's public IPv4 address: ${suggestion} (from api.ipify.org)"
+    fi
+    if interactive; then
+      ip="$(gum input --header "IPv4 address for *.${WILDCARD_DOMAIN} (your router's public address)" --value "${suggestion}")"
+    else
+      ip="${suggestion}"
+    fi
+  fi
+  [[ "${ip}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "--ip needs an IPv4 address (got: ${ip:-nothing})"
+
+  local current
+  current="$(hcloud GET "/zones/${zone}/rrsets/${name}/A" | jq -r '[.rrset.records[]?.value] | join(", ")')"
+  if [ "${current}" = "${ip}" ]; then
+    note "*.${WILDCARD_DOMAIN} already points at ${ip}"
+    return
+  fi
+  gum style --border rounded --padding "0 1" >&2 \
+    "Record:  ${name}.${zone} A (zone ${zone})" \
+    "Now:     ${current:-(none)}" \
+    "New:     ${ip}   TTL ${ttl}s"
+  if [ "${yes}" = false ]; then
+    interactive || fail "missing --yes: pass it to change DNS without asking"
+    gum confirm "Set it?" || fail "cancelled, nothing changed"
+  fi
+
+  local records
+  records="$(jq -nc --arg ip "${ip}" '[{value: $ip, comment: "typo3-kate: ./kate dns"}]')"
+  if [ -z "${current}" ]; then
+    hcloud POST "/zones/${zone}/rrsets" "$(jq -nc --arg n "${name}" --argjson t "${ttl}" --argjson r "${records}" \
+      '{name: $n, type: "A", ttl: $t, records: $r}')" >/dev/null
+  else
+    hcloud POST "/zones/${zone}/rrsets/${name}/A/actions/set_records" "$(jq -nc --argjson r "${records}" '{records: $r}')" >/dev/null
+  fi
+  # The change runs as an action: wait until the record reads back
+  local _
+  for _ in $(seq 1 15); do
+    current="$(hcloud GET "/zones/${zone}/rrsets/${name}/A" | jq -r '[.rrset.records[]?.value] | join(", ")')"
+    [ "${current}" != "${ip}" ] || { step "*.${WILDCARD_DOMAIN} -> ${ip}"; note "Single-name records (e.g. kate.${WILDCARD_DOMAIN}) still take precedence; resolvers may cache the old answer for up to its TTL."; return; }
+    sleep 2
+  done
+  fail "the record doesn't read back as ${ip} yet: check it in the Hetzner Console"
 }
 
 # --- certificates: the saved copies ------------------------------------------------------
@@ -1180,19 +1388,20 @@ _kate() {
     [ "${site}" = kate ] || deployable="${deployable} ${site}"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
-    words="deploy new status logs password certificates remove values manifests autocomplete help"
+    words="deploy new status logs password certificates dns remove values manifests autocomplete help"
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
       new:--from) words="${sites}" ;;
       manifests:--issuer) words="letsencrypt letsencrypt-staging" ;;
-      new:--domain | new:--namespace | values:--hostname | manifests:--hostname | logs:--since | logs:--tail) COMPREPLY=(); return ;;
+      new:--domain | new:--namespace | values:--hostname | manifests:--hostname | logs:--since | logs:--tail | dns:--ip | dns:--ttl) COMPREPLY=(); return ;;
       *)
         case "${cmd}" in
           deploy) words="${deployable} --all --no-build" ;;
           new) words="--domain --acme --namespace --node-ips --from" ;;
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
+          dns) words="--ip --ttl --yes" ;;
           logs)
             # the site first, then the component
             if [ "${COMP_CWORD}" -eq 2 ]; then words="${sites} -f --since --tail"
@@ -1227,6 +1436,7 @@ _kate() {
       'password:backend login of a site'
       'logs:what the pods of a site write'
       'certificates:the saved certificate copies'
+      'dns:the wildcard DNS record at Hetzner'
       'remove:remove a site from the cluster'
       'values:Helm values of a site (CI)'
       'manifests:Gateway, certificate and media route of a site (CI)'
@@ -1240,13 +1450,14 @@ _kate() {
     new:--acme) compadd staging production; return ;;
     new:--from) compadd -a sites; return ;;
     manifests:--issuer) compadd letsencrypt letsencrypt-staging; return ;;
-    new:--domain|new:--namespace|values:--hostname|manifests:--hostname|logs:--since|logs:--tail) _message 'value'; return ;;
+    new:--domain|new:--namespace|values:--hostname|manifests:--hostname|logs:--since|logs:--tail|dns:--ip|dns:--ttl) _message 'value'; return ;;
   esac
   case "${cmd}" in
     deploy) compadd -- ${sites:#kate}; compadd -- --all --no-build ;;
     new) compadd -- --domain --acme --namespace --node-ips --from ;;
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
+    dns) compadd -- --ip --ttl --yes ;;
     logs)
       if (( CURRENT == 3 )); then compadd -a sites
       else compadd typo3 frontend backend messenger scheduler mercure migrations mariadb valkey valkey-cache garage; fi
@@ -1300,13 +1511,13 @@ cmd_autocomplete() {
 }
 
 # --- main ------------------------------------------------------------------------------
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 command="${1:-}"
 [ $# -eq 0 ] || shift
 if [ -z "${command}" ]; then
   interactive || { usage; exit 1; }
-  command="$(gum choose --header "typo3-kate" deploy new status logs password certificates remove autocomplete help)"
+  command="$(gum choose --header "typo3-kate" deploy new status logs password certificates dns remove autocomplete help)"
 fi
 case "${command}" in
   deploy) cmd_deploy "$@" ;;
@@ -1316,6 +1527,7 @@ case "${command}" in
   password) cmd_password "$@" ;;
   logs) cmd_logs "$@" ;;
   certificates) cmd_certificates "$@" ;;
+  dns) cmd_dns "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;
   __wait-certificate) cmd_wait_certificate "$@" ;;   # internal, run under a spinner

@@ -49,10 +49,11 @@ locals {
 
   registry = "${local.master.ip}:${var.registry_node_port}"
 
-  # Let's Encrypt (the ClusterIssuers every project's certificate uses) is on
-  # while ../kate.yaml has an acme: section or a token is passed. The token
-  # must then come on every run (precondition on terraform_data.platform):
-  # without it the issuers would be removed and no certificate would renew.
+  # Let's Encrypt (the ClusterIssuers every site's certificate uses) is on
+  # while ../kate.yaml has an acme: section or a token is passed. The DNS
+  # providers' credentials must then come on every run (preconditions on
+  # terraform_data.platform): without them the issuers would lose their
+  # Secrets and no certificate would renew. Providers: dns.tf.
   acme_enabled = local.acme_configured || nonsensitive(local.hetzner_dns_token != null)
   acme_issuers = {
     "letsencrypt-staging" = "https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -84,9 +85,10 @@ locals {
     })
     }, local.acme_enabled ? {
     "acme.yaml" = templatefile("${path.module}/templates/acme.yaml.tftpl", {
-      hetzner_token = local.hetzner_dns_token == null ? "" : local.hetzner_dns_token
-      issuers       = local.acme_issuers
-      email         = local.acme_email == null ? "" : local.acme_email
+      secrets = sensitive(local.dns_secrets)
+      solvers = local.dns_solvers
+      issuers = local.acme_issuers
+      email   = local.acme_email == null ? "" : local.acme_email
     })
   } : {})
 }
@@ -363,14 +365,26 @@ resource "terraform_data" "platform" {
   }
 
   lifecycle {
-    # Without the token the Secret would be emptied and renewals would fail.
+    # Without credentials the Secrets would be emptied and renewals would fail.
     precondition {
-      condition     = !local.acme_enabled || nonsensitive(local.hetzner_dns_token != null)
+      condition     = !local.acme_enabled || length(local.dns_providers) > 0
       error_message = <<-EOT
-        Let's Encrypt is on (acme: in kate.yaml), so the Hetzner DNS token is needed on every run:
-        acme.hetznerDnsToken in kate.yaml, or TF_VAR_hetzner_dns_token. Read it from the cluster:
+        Let's Encrypt is on (acme: in kate.yaml), so a DNS provider is needed on every run:
+        acme.providers in kate.yaml, or acme.hetznerDnsToken / TF_VAR_hetzner_dns_token for Hetzner. Read the Hetzner token from the cluster:
           export TF_VAR_hetzner_dns_token="$(ssh ubuntu@${local.master.ip} "sudo k3s kubectl -n cert-manager get secret hetzner -o jsonpath='{.data.token}' | base64 -d")"
       EOT
+    }
+    precondition {
+      condition     = alltrue([for name, p in local.dns_providers : contains(local.dns_provider_types, p.type)])
+      error_message = "acme.providers in kate.yaml: every provider needs a type, one of ${join(", ", local.dns_provider_types)}."
+    }
+    precondition {
+      condition     = alltrue([for name, fields in local.dns_missing : length(fields) == 0])
+      error_message = "acme.providers in kate.yaml, missing settings: ${join("; ", [for name, fields in local.dns_missing : "${name}: ${join(", ", fields)}" if length(fields) > 0])}."
+    }
+    precondition {
+      condition     = !local.acme_enabled || length(local.dns_providers) == 0 || contains(local.dns_names, local.dns_default)
+      error_message = "acme.defaultProvider in kate.yaml must name one of acme.providers (needed when there are several and none is called hetzner)."
     }
   }
 }

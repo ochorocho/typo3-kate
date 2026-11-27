@@ -4,13 +4,40 @@
 # without kate.yaml the cluster runs on IP addresses with the cluster CA.
 # Each site's domain and Let's Encrypt environment: projects/<name>/kate.yaml.
 
-# Let's Encrypt via DNS-01 on Hetzner DNS, for every project with a domain.
-# While this section exists, tofu needs the token on every run.
+# Let's Encrypt via DNS-01, for every project with a domain. While this
+# section exists, tofu needs the DNS providers' credentials on every run.
 acme:
   email: ""                     # optional contact address
   # Hetzner Console -> project -> Security -> API tokens, Read & Write.
   # Alternatively keep it out of this file: export TF_VAR_hetzner_dns_token
+  # (Shorthand for a provider "hetzner"; or use providers: below.)
   hetznerDnsToken: ""
+  # Several DNS providers, each with a name of your choice. A site picks one
+  # with acme.provider in projects/<name>/kate.yaml; without it the site uses
+  # defaultProvider (else "hetzner", else the only one).
+  # defaultProvider: hetzner
+  # providers:
+  #   hetzner:
+  #     type: hetzner             # Hetzner Console API token, Read & Write
+  #     token: ""
+  #   cloudflare:
+  #     type: cloudflare          # API token with Zone:DNS:Edit (and Zone:Read)
+  #     apiToken: ""
+  #   aws:
+  #     type: route53             # IAM user with route53:ChangeResourceRecordSets etc.
+  #     region: eu-central-1
+  #     accessKeyId: ""
+  #     secretAccessKey: ""
+  #     hostedZoneId: ""          # optional
+  #   digitalocean:
+  #     type: digitalocean        # API token with write access to domains
+  #     token: ""
+  #   bind:
+  #     type: rfc2136             # any DNS server with dynamic updates (BIND, PowerDNS, Knot)
+  #     nameserver: "203.0.113.53:53"
+  #     tsigKeyName: kate.
+  #     tsigAlgorithm: HMACSHA256 # default
+  #     tsigSecret: ""            # base64, as in the server's key file
   # One certificate for *.<domain>, shared by every site whose domain is one
   # level below it (shop.example.com, blog.example.com); ./kate deploy creates
   # it once. Other sites keep their own. Let's Encrypt counts it as one set of
@@ -18,6 +45,7 @@ acme:
   # wildcard:
   #   domain: example.com
   #   environment: staging        # then production
+  #   provider: cloudflare        # default: defaultProvider
 
 # More public keys for "ssh ubuntu@<node>", e.g. from your laptop (the
 # contents of ~/.ssh/id_ed25519.pub). The key of the machine running tofu
