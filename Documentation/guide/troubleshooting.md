@@ -160,10 +160,11 @@ kubectl -n cert-manager logs deploy/cert-manager-webhook-hetzner --tail=30
 | challenge `pending` with an authentication error | wrong token, or one from the old DNS Console. Create a read+write token in the Hetzner Console |
 | `zone not found` | the zone isn't managed in the Hetzner Console, or not in the token's project |
 | `too many failed authorizations` | Let's Encrypt rate limit: wait an hour, test with `acme.environment: staging` in the site's `kate.yaml` |
+| `429 … rateLimited: too many certificates (5) already issued for this exact set of identifiers` | Let's Encrypt issues at most 5 certificates per week for the same domain, and rebuilt clusters each ask for a new one. Wait until the `retry after` time, or meanwhile use `acme.environment: staging`, or copy a still valid certificate (secret `site-tls` with its cert-manager annotations) from another namespace, e.g. `gateway-system`. Use `staging` while you rebuild clusters often |
 | browser warns although the certificate is `Ready` | still the staging certificate: set `acme.environment: production` in `projects/<name>/kate.yaml` and deploy again |
 | `clusterissuer.cert-manager.io "letsencrypt" not found` | no `acme:` section in the root `kate.yaml` yet: add it and run `tofu apply` in `infra/` |
 
-`./kate deploy` waits up to 10 minutes for the certificate and prints the challenges when it gives up.
+`./kate deploy` waits up to 10 minutes for the certificate, but stops as soon as an issuance attempt has failed: cert-manager then waits an hour or more before it tries again. It prints the events and challenges, names a rate limit with its retry time, and shows how to start over once the cause is fixed: `kubectl -n <namespace> delete certificate site` and `./kate deploy <site>`.
 
 ## `tofu apply`: "Let's Encrypt is on (acme: in kate.yaml), so the Hetzner DNS token is needed"
 
@@ -187,7 +188,7 @@ kubectl -n typo3 exec garage-0 -- /garage bucket info media
 |---|---|
 | `TYPO3_S3_KEY` / `TYPO3_S3_SECRET` missing | `typo3-env` from before Garage: run `./kate deploy kate`, it adds them |
 | storage still offline after the variables are there | the frontend/backend pods started before the change: `kubectl -n typo3 rollout restart deploy/typo3-backend deploy/typo3-frontend` |
-| timeouts to `garage:3900` | the NetworkPolicy `typo3-to-garage` is missing: `kubectl -n typo3 get networkpolicy` |
+| timeouts to `garage:3900` | the chart's NetworkPolicy `typo3` lacks the Garage rule (`networkPolicy.extraEgress` in `k8s/values/cluster.yaml`): `kubectl -n typo3 get networkpolicy typo3 -o yaml` |
 | images in the page don't load (404) | `/media/` route or website mode: `kubectl -n typo3 get httproute media`, `… /garage bucket website --allow media` |
 
 ## `./kate deploy` refuses to deploy a site

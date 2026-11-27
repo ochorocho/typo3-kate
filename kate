@@ -428,12 +428,8 @@ cmd_deploy() {
   cmd_manifests ${route_args[@]+"${route_args[@]}"} | k apply -f - >/dev/null
   if [ -n "${DOMAIN}" ]; then
     # DNS-01 takes a few minutes the first time (TXT record, propagation)
-    if ! wait_for "Let's Encrypt certificate for ${DOMAIN} (DNS-01, a few minutes the first time)" \
-        kubectl -n "${NAMESPACE}" wait certificate/site --for=condition=Ready --timeout=10m; then
-      k describe certificate site | tail -15 >&2 || true
-      kubectl get challenges -n "${NAMESPACE}" -o wide >&2 || true
-      fail "no certificate for ${DOMAIN}: is it in a Hetzner DNS zone that the token in ./kate.yaml may edit?"
-    fi
+    wait_for "Let's Encrypt certificate for ${DOMAIN} (DNS-01, a few minutes the first time)" \
+      "$0" __wait-certificate "${NAMESPACE}" || certificate_failed
     wait_for "Gateway" kubectl -n "${NAMESPACE}" wait gateway/site --for=condition=Programmed --timeout=2m
   fi
 
@@ -564,6 +560,41 @@ YAML
     "TYPO3:    ${where}" \
     "Backend:  ${site_url}/typo3   user: $(secret_value typo3-admin username)" \
     "Password: ./kate password ${PROJECT}   (--copy: to the clipboard)"
+}
+
+# certificate_failed: why the site's Certificate isn't Ready, then fail
+certificate_failed() {
+  local described
+  described="$(k describe certificate site 2>/dev/null || true)"
+  tail -15 <<<"${described}" >&2
+  kubectl get challenges -n "${NAMESPACE}" -o wide >&2 2>/dev/null || true
+  # After a failed attempt cert-manager waits (1 h and more) before it tries again
+  local retry="after fixing the cause: kubectl -n ${NAMESPACE} delete certificate site && ./kate deploy ${PROJECT}"
+  if grep -q "rateLimited" <<<"${described}"; then
+    local until
+    until="$(grep -o 'retry after [0-9-]* [0-9:]* UTC' <<<"${described}" | tail -1)"
+    fail "Let's Encrypt rate limit for ${DOMAIN} (${until:-retry later}): too many certificates for it this week. Until then reuse an existing certificate (secret site-tls) or set acme.environment: staging in projects/${PROJECT}/kate.yaml; ${retry}"
+  fi
+  fail "no certificate for ${DOMAIN}, see the events above. For DNS-01 the domain must be in a Hetzner DNS zone that the token in ./kate.yaml may edit; ${retry}"
+}
+
+# __wait-certificate <namespace>: until the Certificate "site" is Ready (0),
+# or an issuance attempt has failed (1): cert-manager then backs off for an
+# hour or more, so waiting longer is pointless. At most 10 minutes.
+cmd_wait_certificate() {
+  local namespace="$1" status _
+  for _ in $(seq 1 60); do
+    status="$(kubectl -n "${namespace}" get certificate site -o json 2>/dev/null | jq -r '
+      if ([.status.conditions[]? | select(.type == "Ready" and .status == "True")] | length) > 0 then "ready"
+      elif (.status.failedIssuanceAttempts // 0) > 0 and ([.status.conditions[]? | select(.type == "Issuing" and .status == "True")] | length) == 0 then "failed"
+      else "waiting" end' || echo waiting)"
+    case "${status}" in
+      ready) return 0 ;;
+      failed) return 1 ;;
+    esac
+    sleep 10
+  done
+  return 1
 }
 
 # --- new: create a site in projects/<site>/ ------------------------------------------
@@ -1064,6 +1095,7 @@ case "${command}" in
   logs) cmd_logs "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;
+  __wait-certificate) cmd_wait_certificate "$@" ;;   # internal, run under a spinner
   autocomplete) cmd_autocomplete "$@" ;;
   help | -h | --help) usage ;;
   *) usage; exit 1 ;;
