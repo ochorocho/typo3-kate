@@ -24,11 +24,14 @@ jobs:
         run: shellcheck -x k8s/*.sh infra/scripts/*.sh
       - uses: azure/setup-helm@v4
       - name: Helm chart
+        # The same values as k8s/deploy.sh: cluster.yaml, the site's URLs, then
+        # the helm: section of kate.yaml (here the template's)
         run: |
-          helm lint k8s/charts/typo3 -f k8s/values/cluster.yaml \
-            --set image.repository=ci/typo3 --set image.tag=ci
-          helm template ci k8s/charts/typo3 -n typo3 -f k8s/values/cluster.yaml \
-            --set image.repository=ci/typo3 --set image.tag=ci > rendered-cluster.yaml
+          k8s/site-values.sh https://kate.example.com > site.yaml
+          yq '.helm // {}' kate.example.yaml > kate-helm.yaml
+          values=(-f k8s/values/cluster.yaml -f site.yaml -f kate-helm.yaml --set image.repository=ci/typo3 --set image.tag=ci)
+          helm lint k8s/charts/typo3 "${values[@]}"
+          helm template ci k8s/charts/typo3 -n typo3 "${values[@]}" > rendered-cluster.yaml
       - name: Kubernetes schemas
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
