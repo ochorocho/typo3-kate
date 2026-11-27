@@ -87,6 +87,23 @@ That's why `./kate` keeps a copy of every issued certificate on the machine you 
 
 Only when there is no copy to restore does `./kate deploy` order a new production certificate, and it says so. Use `acme.environment: staging` while you rebuild clusters or try things out. `./kate new` suggests staging, and uses it when run without a terminal.
 
+## One certificate for all subdomains (wildcard)
+
+With several sites under one domain (`kate.ochorocho.dev`, `benni.ochorocho.dev`, …) one wildcard certificate can serve them all. Set it in the root `kate.yaml`:
+
+```yaml
+acme:
+  wildcard:
+    domain: ochorocho.dev
+    environment: staging        # then production
+```
+
+`./kate deploy` then creates the Certificate `wildcard` (`*.ochorocho.dev`, Secret `wildcard-tls`) in `gateway-system` once, or restores its saved copy, and every site whose domain is exactly one level below it uses it: its Gateway refers to the shared Secret, allowed by a ReferenceGrant `site-<namespace>` in `gateway-system`. Such a site's own Certificate is saved and removed once its Gateway runs with the wildcard. Sites on other domains (or deeper, like `a.b.ochorocho.dev`) keep their own certificate; `acme.environment` in a site's `kate.yaml` only applies to those.
+
+What it saves: one certificate per rebuild instead of one per site, so the limit of 50 certificates per week for all names under `ochorocho.dev` stays far away. The wildcard is one set of names, with its own 5 per week, kept across rebuilds like the others. Each site still needs a DNS record; a wildcard record `*.ochorocho.dev` pointing at your public IP spares that step for new sites.
+
+`./kate status` shows such a site's certificate as the wildcard's state, and `./kate remove` deletes only the site's ReferenceGrant; the wildcard stays for the others.
+
 ## The token on later runs
 
 While the root `kate.yaml` has an `acme:` section, **every** `tofu apply` needs the token: from `kate.yaml`, or from `TF_VAR_hetzner_dns_token`. Without it, OpenTofu stops with an error instead of removing the issuers, which would stop every site's certificate from renewing. The token is also stored in the cluster, so you can keep it out of `kate.yaml` and read it from there:

@@ -11,6 +11,13 @@ acme:
   # Hetzner Console -> project -> Security -> API tokens, Read & Write.
   # Alternatively keep it out of this file: export TF_VAR_hetzner_dns_token
   hetznerDnsToken: ""
+  # One certificate for *.<domain>, shared by every site whose domain is one
+  # level below it (shop.example.com, blog.example.com); ./kate deploy creates
+  # it once. Other sites keep their own. Let's Encrypt counts it as one set of
+  # names: 5 per week, and the saved copy is reused after cluster rebuilds.
+  # wildcard:
+  #   domain: example.com
+  #   environment: staging        # then production
 
 # More public keys for "ssh ubuntu@<node>", e.g. from your laptop (the
 # contents of ~/.ssh/id_ed25519.pub). The key of the machine running tofu

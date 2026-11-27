@@ -183,19 +183,29 @@ cmd_values() {
 #  - Certificate "site": Let's Encrypt for the domain (secret site-tls), via
 #    the ClusterIssuers from infra/templates/acme.yaml.tftpl
 #  - HTTPRoute "media": /media/ -> Garage, attached like the chart's route
+# With --certificate-ref <namespace>/<secret> instead of --issuer the listener
+# uses that Secret (the wildcard certificate in gateway-system, allowed by a
+# ReferenceGrant there) and no Certificate is printed.
 # Without a domain only the media route (node IPs, public-gateway).
 cmd_manifests() {
-  local usage="Usage: ./kate manifests [--hostname <domain> --issuer <cluster-issuer>] [--node-ips]"
-  local hostname="" issuer="" values_args=()
+  local usage="Usage: ./kate manifests [--hostname <domain> (--issuer <cluster-issuer> | --certificate-ref <namespace>/<secret>)] [--node-ips]"
+  local hostname="" issuer="" ref="" values_args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --hostname) [ $# -ge 2 ] || fail "${usage}"; hostname="$2"; values_args+=(--hostname "$2"); shift 2 ;;
       --issuer) [ $# -ge 2 ] || fail "${usage}"; issuer="$2"; shift 2 ;;
+      --certificate-ref) [ $# -ge 2 ] || fail "${usage}"; ref="$2"; shift 2 ;;
       --node-ips) values_args+=(--node-ips); shift ;;
       *) fail "${usage}" ;;
     esac
   done
-  [ -z "${hostname}" ] || [ -n "${issuer}" ] || fail "${usage}"
+  if [ -n "${hostname}" ]; then
+    { [ -n "${issuer}" ] && [ -z "${ref}" ]; } || { [ -z "${issuer}" ] && [[ "${ref}" == */* ]]; } || fail "${usage}"
+  fi
+
+  local cert_ref="          - name: site-tls"
+  [ -z "${ref}" ] || cert_ref="          - name: ${ref#*/}
+            namespace: ${ref%%/*}"
 
   if [ -n "${hostname}" ]; then
     cat <<YAML
@@ -214,11 +224,15 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
-          - name: site-tls
+${cert_ref}
       allowedRoutes:
         namespaces:
           from: Same
 ---
+YAML
+  fi
+  if [ -n "${hostname}" ] && [ -z "${ref}" ]; then
+    cat <<YAML
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -419,27 +433,47 @@ cmd_deploy() {
 
   # 3. routing: Gateway, certificate, media route
   step "Routing ${DOMAIN:-(node IPs only)}"
-  local route_args=()
-  local issuer=""
+  local route_args=() issuer="" wildcard=""
   if [ -n "${DOMAIN}" ]; then
-    issuer=letsencrypt-staging
-    [ "${ACME_ENVIRONMENT}" = staging ] || issuer=letsencrypt
-    route_args+=(--hostname "${DOMAIN}" --issuer "${issuer}")
-    # Before the Certificate exists: a saved copy spares a new order
-    if ! restore_certificate "${DOMAIN}" "${issuer}" && [ "${issuer}" = letsencrypt ] \
-        && ! k get secret site-tls >/dev/null 2>&1; then
-      gum style --foreground 214 >&2 \
-        "Ordering a new production certificate for ${DOMAIN}: Let's Encrypt allows 5 per week for the same domain." \
-        "While you rebuild or experiment, use acme.environment: staging in projects/${PROJECT}/kate.yaml."
+    wildcard="$(wildcard_for "${DOMAIN}")"
+    if [ -n "${wildcard}" ]; then
+      # One certificate for *.<wildcard> in gateway-system, shared by the sites
+      issuer="$(issuer_for "${WILDCARD_ENVIRONMENT}")"
+      route_args+=(--hostname "${DOMAIN}" --certificate-ref gateway-system/wildcard-tls)
+      restore_certificate gateway-system wildcard-tls "*.${wildcard}" "${issuer}" "wildcard.${wildcard}" \
+        || warn_new_production "${issuer}" gateway-system wildcard-tls "*.${wildcard}" "acme.wildcard.environment in ./kate.yaml"
+      wildcard_manifests "${wildcard}" "${issuer}" | kubectl apply -f - >/dev/null
+      grant_manifest "${NAMESPACE}" | kubectl apply -f - >/dev/null
+    else
+      issuer="$(issuer_for "${ACME_ENVIRONMENT}")"
+      route_args+=(--hostname "${DOMAIN}" --issuer "${issuer}")
+      # Before the Certificate exists: a saved copy spares a new order
+      restore_certificate "${NAMESPACE}" site-tls "${DOMAIN}" "${issuer}" "${DOMAIN}" \
+        || warn_new_production "${issuer}" "${NAMESPACE}" site-tls "${DOMAIN}" "acme.environment in projects/${PROJECT}/kate.yaml"
+      kubectl -n gateway-system delete referencegrant "site-${NAMESPACE}" --ignore-not-found >/dev/null
     fi
   fi
   [ "${NODE_IPS}" = false ] || route_args+=(--node-ips)
   cmd_manifests ${route_args[@]+"${route_args[@]}"} | k apply -f - >/dev/null
-  if [ -n "${DOMAIN}" ]; then
+  if [ -n "${wildcard}" ]; then
     # DNS-01 takes a few minutes the first time (TXT record, propagation)
+    wait_for "Let's Encrypt certificate for *.${wildcard} (DNS-01, a few minutes the first time)" \
+      "$0" __wait-certificate gateway-system wildcard \
+      || certificate_failed gateway-system wildcard "*.${wildcard}" "acme.wildcard.environment in ./kate.yaml"
+    save_certificate gateway-system wildcard-tls "wildcard.${wildcard}"
+    wait_for "Gateway" kubectl -n "${NAMESPACE}" wait gateway/site --for=condition=Programmed --timeout=2m
+    # The site's own certificate from before the wildcard: keep a copy, then drop it
+    if k get certificate site >/dev/null 2>&1; then
+      save_certificate "${NAMESPACE}" site-tls "${DOMAIN}"
+      k delete certificate site >/dev/null
+      k delete secret site-tls --ignore-not-found >/dev/null
+      note "The site now uses *.${wildcard}; its own certificate is saved in ${CERT_DIR}"
+    fi
+  elif [ -n "${DOMAIN}" ]; then
     wait_for "Let's Encrypt certificate for ${DOMAIN} (DNS-01, a few minutes the first time)" \
-      "$0" __wait-certificate "${NAMESPACE}" || certificate_failed
-    save_certificate "${NAMESPACE}" "${DOMAIN}"
+      "$0" __wait-certificate "${NAMESPACE}" site \
+      || certificate_failed "${NAMESPACE}" site "${DOMAIN}" "acme.environment in projects/${PROJECT}/kate.yaml"
+    save_certificate "${NAMESPACE}" site-tls "${DOMAIN}"
     wait_for "Gateway" kubectl -n "${NAMESPACE}" wait gateway/site --for=condition=Programmed --timeout=2m
   fi
 
@@ -579,35 +613,106 @@ YAML
 # this machine and restores it into a fresh namespace. cert-manager then sees
 # a matching, valid certificate (same domain, same issuer) and orders nothing.
 CERT_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/typo3-kate/certificates"
-cert_file() { echo "${CERT_DIR}/$1.$2.json"; }   # <domain> <issuer>
+# cert_file <name> <issuer>: the copy of a site's certificate (<name> = its
+# domain) or of the wildcard one (<name> = wildcard.<domain>)
+cert_file() { echo "${CERT_DIR}/$1.$2.json"; }
 
-# save_certificate <namespace> <domain>: copy its Secret site-tls (with the
+# save_certificate <namespace> <secret> <name>: copy the Secret (with the
 # private key, so only readable by you)
 save_certificate() {
-  local namespace="$1" domain="$2" json issuer
-  json="$(kubectl -n "${namespace}" get secret site-tls -o json 2>/dev/null)" || return 0
+  local namespace="$1" secret="$2" name="$3" json issuer
+  json="$(kubectl -n "${namespace}" get secret "${secret}" -o json 2>/dev/null)" || return 0
   issuer="$(jq -r '.metadata.annotations["cert-manager.io/issuer-name"] // ""' <<<"${json}")"
   [ -n "${issuer}" ] || return 0
   mkdir -p "${CERT_DIR}"
   chmod 700 "${CERT_DIR}"
   (umask 077 && jq '{apiVersion, kind, type, data,
-      metadata: {name, labels: (.metadata.labels // {}),
+      metadata: {name: .metadata.name, labels: (.metadata.labels // {}),
         annotations: ((.metadata.annotations // {}) | with_entries(select(.key | startswith("cert-manager.io/"))))}}' \
-      <<<"${json}" > "$(cert_file "${domain}" "${issuer}")")
+      <<<"${json}" > "$(cert_file "${name}" "${issuer}")")
 }
 
-# restore_certificate <domain> <issuer>: into NAMESPACE, if it has none yet and
-# the saved one is for this domain and still valid for 7 days. 0 = restored.
+# restore_certificate <namespace> <secret> <dns-name> <issuer> <name>: the
+# saved copy, if the namespace has no such Secret yet, the copy contains
+# exactly this DNS name and stays valid for 7 days. 0 = restored.
 restore_certificate() {
-  local domain="$1" issuer="$2" file crt
-  file="$(cert_file "${domain}" "${issuer}")"
+  local namespace="$1" secret="$2" dns_name="$3" issuer="$4" name="$5" file crt
+  file="$(cert_file "${name}" "${issuer}")"
   [ -f "${file}" ] || return 1
-  ! k get secret site-tls >/dev/null 2>&1 || return 1
+  ! kubectl -n "${namespace}" get secret "${secret}" >/dev/null 2>&1 || return 1
   crt="$(jq -r '.data["tls.crt"]' "${file}" | base64 -d)"
   openssl x509 -noout -checkend 604800 <<<"${crt}" >/dev/null 2>&1 || return 1
-  openssl x509 -noout -text <<<"${crt}" | grep -q "DNS:${domain}\(,\|\$\)" || return 1
-  k apply -f "${file}" >/dev/null
-  note "Restored the saved certificate for ${domain} (valid until $(openssl x509 -noout -enddate <<<"${crt}" | cut -d= -f2)), nothing is ordered"
+  openssl x509 -noout -text <<<"${crt}" | grep -o 'DNS:[^,]*' | sed 's/^DNS://' | grep -qxF -- "${dns_name}" || return 1
+  kubectl -n "${namespace}" apply -f "${file}" >/dev/null
+  note "Restored the saved certificate for ${dns_name} (valid until $(openssl x509 -noout -enddate <<<"${crt}" | cut -d= -f2)), nothing is ordered"
+}
+
+# --- wildcard certificate ----------------------------------------------------------------
+# acme.wildcard in ./kate.yaml: one certificate for *.<domain> in gateway-system,
+# used by every site whose domain is exactly one level below it. Each such
+# site's Gateway refers to it, allowed by a ReferenceGrant "site-<namespace>".
+WILDCARD_DOMAIN=""
+WILDCARD_ENVIRONMENT=staging
+if [ -f "${KATE_FILE}" ] && command -v yq >/dev/null; then
+  WILDCARD_DOMAIN="$(yq -r '.acme.wildcard.domain // ""' "${KATE_FILE}")"
+  WILDCARD_ENVIRONMENT="$(yq -r '.acme.wildcard.environment // "staging"' "${KATE_FILE}")"
+fi
+
+issuer_for() { if [ "$1" = production ]; then echo letsencrypt; else echo letsencrypt-staging; fi; }
+
+# wildcard_for <domain>: the wildcard domain that covers it, or nothing
+wildcard_for() {
+  [ -n "${WILDCARD_DOMAIN}" ] || return 0
+  [[ "$1" == *".${WILDCARD_DOMAIN}" ]] || return 0
+  local label="${1%".${WILDCARD_DOMAIN}"}"
+  [[ "${label}" != *.* ]] && [ -n "${label}" ] && echo "${WILDCARD_DOMAIN}"
+  return 0
+}
+
+wildcard_manifests() {   # <wildcard domain> <issuer>
+  cat <<YAML
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard
+  namespace: gateway-system
+spec:
+  secretName: wildcard-tls
+  dnsNames:
+    - "*.$1"
+  issuerRef:
+    kind: ClusterIssuer
+    name: $2
+YAML
+}
+
+grant_manifest() {   # <site namespace>: its Gateway may use wildcard-tls
+  cat <<YAML
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: site-$1
+  namespace: gateway-system
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      namespace: $1
+  to:
+    - group: ""
+      kind: Secret
+      name: wildcard-tls
+YAML
+}
+
+# warn_new_production <issuer> <namespace> <secret> <dns-name> <setting>:
+# when a production certificate is about to be ordered
+warn_new_production() {
+  [ "$1" = letsencrypt ] || return 0
+  ! kubectl -n "$2" get secret "$3" >/dev/null 2>&1 || return 0
+  gum style --foreground 214 >&2 \
+    "Ordering a new production certificate for $4: Let's Encrypt allows 5 per week for the same names." \
+    "While you rebuild or experiment, set $5 to staging."
 }
 
 # --- certificates: the saved copies ------------------------------------------------------
@@ -635,6 +740,7 @@ cmd_certificates() {
       *) continue ;;
     esac
     domain="${name%."${issuer}"}"
+    [[ "${domain}" != wildcard.* ]] || domain="*.${domain#wildcard.}"
     crt="$(jq -r '.data["tls.crt"] // empty' "${file}" 2>/dev/null | base64 -d 2>/dev/null || true)"
     end="$(openssl x509 -noout -enddate <<<"${crt}" 2>/dev/null | cut -d= -f2 || true)"
     if [ -z "${end}" ]; then
@@ -655,29 +761,30 @@ cmd_certificates() {
   note "In ${CERT_DIR}"
 }
 
-# certificate_failed: why the site's Certificate isn't Ready, then fail
+# certificate_failed <namespace> <certificate> <dns-name> <where to switch>:
+# why the Certificate isn't Ready, then fail
 certificate_failed() {
-  local described
-  described="$(k describe certificate site 2>/dev/null || true)"
+  local namespace="$1" certificate="$2" dns_name="$3" setting="$4" described
+  described="$(kubectl -n "${namespace}" describe certificate "${certificate}" 2>/dev/null || true)"
   tail -15 <<<"${described}" >&2
-  kubectl get challenges -n "${NAMESPACE}" -o wide >&2 2>/dev/null || true
+  kubectl get challenges -n "${namespace}" -o wide >&2 2>/dev/null || true
   # After a failed attempt cert-manager waits (1 h and more) before it tries again
-  local retry="after fixing the cause: kubectl -n ${NAMESPACE} delete certificate site && ./kate deploy ${PROJECT}"
+  local retry="after fixing the cause: kubectl -n ${namespace} delete certificate ${certificate} && ./kate deploy ${PROJECT}"
   if grep -q "rateLimited" <<<"${described}"; then
     local until
     until="$(grep -o 'retry after [0-9-]* [0-9:]* UTC' <<<"${described}" | tail -1)"
-    fail "Let's Encrypt rate limit for ${DOMAIN} (${until:-retry later}): too many certificates for it this week. Until then reuse an existing certificate (secret site-tls) or set acme.environment: staging in projects/${PROJECT}/kate.yaml; ${retry}"
+    fail "Let's Encrypt rate limit for ${dns_name} (${until:-retry later}): too many certificates for it this week. Until then reuse an existing certificate or set ${setting} to staging; ${retry}"
   fi
-  fail "no certificate for ${DOMAIN}, see the events above. For DNS-01 the domain must be in a Hetzner DNS zone that the token in ./kate.yaml may edit; ${retry}"
+  fail "no certificate for ${dns_name}, see the events above. For DNS-01 the domain must be in a Hetzner DNS zone that the token in ./kate.yaml may edit; ${retry}"
 }
 
-# __wait-certificate <namespace>: until the Certificate "site" is Ready (0),
-# or an issuance attempt has failed (1): cert-manager then backs off for an
-# hour or more, so waiting longer is pointless. At most 10 minutes.
+# __wait-certificate <namespace> [<certificate>]: until it is Ready (0), or an
+# issuance attempt has failed (1): cert-manager then backs off for an hour or
+# more, so waiting longer is pointless. At most 10 minutes.
 cmd_wait_certificate() {
-  local namespace="$1" status _
+  local namespace="$1" certificate="${2:-site}" status _
   for _ in $(seq 1 60); do
-    status="$(kubectl -n "${namespace}" get certificate site -o json 2>/dev/null | jq -r '
+    status="$(kubectl -n "${namespace}" get certificate "${certificate}" -o json 2>/dev/null | jq -r '
       if ([.status.conditions[]? | select(.type == "Ready" and .status == "True")] | length) > 0 then "ready"
       elif (.status.failedIssuanceAttempts // 0) > 0 and ([.status.conditions[]? | select(.type == "Issuing" and .status == "True")] | length) == 0 then "failed"
       else "waiting" end' || echo waiting)"
@@ -779,7 +886,11 @@ cmd_status() {
     fi
     state="$(helm -n "${NAMESPACE}" status "${RELEASE}" -o json 2>/dev/null | jq -r '.info.status // "no release"' || echo "no release")"
     cert="-"
-    [ -z "${DOMAIN}" ] || cert="$(kubectl -n "${NAMESPACE}" get certificate site -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+    if [ -n "$(wildcard_for "${DOMAIN}")" ]; then
+      cert="$(kubectl -n gateway-system get certificate wildcard -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true) (*.${WILDCARD_DOMAIN})"
+    elif [ -n "${DOMAIN}" ]; then
+      cert="$(kubectl -n "${NAMESPACE}" get certificate site -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+    fi
     pods="$(kubectl -n "${NAMESPACE}" get pods -o json | jq -r '
       [.items[] | select(.status.phase != "Succeeded")] as $p
       | "\([$p[] | select(all(.status.containerStatuses[]?; .ready))] | length)/\($p | length) ready"')"
@@ -1019,10 +1130,11 @@ cmd_remove() {
   # Keep its certificate: deploying the site again then orders none
   local site_domain
   site_domain="$(kubectl get namespace "${NAMESPACE}" -o json | jq -r '.metadata.annotations["typo3-kate/domain"] // ""')"
-  if [ -n "${site_domain}" ]; then
-    save_certificate "${NAMESPACE}" "${site_domain}"
-    [ ! -f "$(cert_file "${site_domain}" letsencrypt)" ] && [ ! -f "$(cert_file "${site_domain}" letsencrypt-staging)" ] \
-      || note "Certificate for ${site_domain} kept in ${CERT_DIR}"
+  # Its use of the wildcard certificate (which stays for the other sites)
+  kubectl -n gateway-system delete referencegrant "site-${NAMESPACE}" --ignore-not-found >/dev/null
+  if [ -n "${site_domain}" ] && kubectl -n "${NAMESPACE}" get secret site-tls >/dev/null 2>&1; then
+    save_certificate "${NAMESPACE}" site-tls "${site_domain}"
+    note "Certificate for ${site_domain} kept in ${CERT_DIR}"
   fi
 
   wait_for "helm uninstall" sh -c "helm -n '${NAMESPACE}' uninstall '${RELEASE}' --wait 2>/dev/null || true"

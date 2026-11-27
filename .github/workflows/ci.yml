@@ -60,6 +60,8 @@ jobs:
             [ "$(yq -r '.nodeIPs // false' "${file}")" = false ] || routing+=(--node-ips)
             ./kate manifests "${routing[@]}" > "rendered-${project}-routing.yaml"
           done
+          # a site under acme.wildcard: its Gateway uses the shared certificate
+          ./kate manifests --hostname shop.example.com --certificate-ref gateway-system/wildcard-tls > rendered-wildcard-routing.yaml
       - name: Kubernetes schemas
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
