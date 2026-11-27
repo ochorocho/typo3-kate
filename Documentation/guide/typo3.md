@@ -39,7 +39,7 @@ projects/<name>/
 ├── composer.json    the site's packages; path repository ../../packages/*
 ├── composer.lock
 ├── config/sites/    site configuration
-└── packages/        optional: packages of this site only (add the path repository packages/* to composer.json)
+└── packages/        the site's own extensions, e.g. its site package (path repository packages/*)
 ```
 
 Only `projects/_example` (the template) and `projects/kate` are part of this repository. Every other folder in `projects/` is git-ignored, so your own sites stay local, for example as a git repository of their own cloned into `projects/<name>/`. `./kate deploy` doesn't care either way.
@@ -71,7 +71,7 @@ Full examples of both files: [Settings (kate.yaml)](../reference/settings).
 ./kate deploy shop
 ```
 
-`./kate new` copies `composer.json`, `composer.lock` and `config/sites/` from an existing site (`--from <site>`, asked for when there are several) and writes `projects/shop/kate.yaml` from the template with the domain, the Let's Encrypt environment and, if it differs from the name, the namespace. `--node-ips` lets the site answer on the node IPs instead; without a domain it always does. Edit `composer.json` and the `helm:` section afterwards as needed (`composer update` in the folder rewrites the lock file).
+`./kate new` creates `packages/` for the site's own extensions, adds the path repository `packages/*` to its `composer.json` (an extension in `packages/<name>/` is then installed with `composer require <vendor/name>:@dev`), copies `composer.json`, `composer.lock` and `config/sites/` from an existing site (`--from <site>`, asked for when there are several) and writes `projects/shop/kate.yaml` from the template with the domain, the Let's Encrypt environment and, if it differs from the name, the namespace. `--node-ips` lets the site answer on the node IPs instead; without a domain it always does. Edit `composer.json` and the `helm:` section afterwards as needed (`composer update` in the folder rewrites the lock file).
 
 The domain needs an A record pointing at your public IP and must be in a Hetzner DNS zone the token may edit (see [Public domain & Let's Encrypt](./public-access#another-site)). Folders starting with `_` (like `_example`) are templates and are skipped by `--all`. Check the memory first: [Odroid H2 host](./odroid#several-sites).
 
@@ -171,7 +171,13 @@ What changes for that site:
 Without the package it falls back to `cleanup:localprocessedfiles --all` (EXT:lowlevel), which covers only storages with the Local driver, not S3.
 
 ::: warning TYPO3 v15
-EXT:media_processing 1.0 needs Symfony 7, TYPO3 v15 (`dev-main`) is on Symfony 8: it installs on TYPO3 v14 sites only until [upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41) is resolved. The kate site (v15) keeps ImageMagick.
+EXT:media_processing 1.0 allows Symfony 7 only, TYPO3 v15 (`dev-main`) is on Symfony 8 ([upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41)). On TYPO3 v14 it installs as it is. On v15, require it with an inline alias that lets Symfony 8 count as 7.x for this one requirement:
+
+```sh
+composer require "symfony/options-resolver:8.1.10 as 7.4.99" ochorocho/kate-imgproxy:@dev
+```
+
+The extension only uses `setDefaults()` and `resolve()` of the OptionsResolver, both unchanged in Symfony 8. Use the version your lock file has, adjust it on Symfony updates, and drop the line once #41 is released.
 :::
 
 ::: tip macOS: kubectl blocked

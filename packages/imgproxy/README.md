@@ -11,6 +11,6 @@ typo3-kate's glue for sites with `imgproxy.enabled` in their `kate.yaml`: images
 cd projects/<site> && composer require ochorocho/kate-imgproxy:@dev
 ```
 
-EXT:media_processing 1.0 needs Symfony 7 (TYPO3 v14); TYPO3 v15 is on Symfony 8, see [upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41).
+EXT:media_processing 1.0 allows Symfony 7 only (TYPO3 v14); TYPO3 v15 is on Symfony 8, see [upstream issue #41](https://github.com/somehow-digital/typo3-media-processing/issues/41). On v15, require it with an inline alias: `composer require "symfony/options-resolver:8.1.10 as 7.4.99" ochorocho/kate-imgproxy:@dev`
 
 Tests: `../../projects/kate/vendor/bin/phpunit -c packages/imgproxy/phpunit.xml.dist` (with the kate site's dependencies installed).

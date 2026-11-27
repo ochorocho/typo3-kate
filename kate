@@ -1135,7 +1135,27 @@ cmd_new() {
   local dir="${ROOT}/projects/${name}"
   mkdir -p "${dir}/config"
   cp "${ROOT}/projects/${from}/composer.json" "${dir}/"
+  # packages/ for the site's own extensions (e.g. its site package), found
+  # through the path repository packages/*: composer require <name>:@dev
+  mkdir -p "${dir}/packages"
+  touch "${dir}/packages/.gitkeep"
+  local repository_added=false
+  if ! jq -e '(.repositories // []) | map(select(.url == "packages/*")) | length > 0' "${dir}/composer.json" >/dev/null; then
+    jq --indent 4 '.repositories = ((.repositories // []) + [{"type": "path", "url": "packages/*"}])' \
+      "${dir}/composer.json" > "${dir}/composer.json.new"
+    mv "${dir}/composer.json.new" "${dir}/composer.json"
+    repository_added=true
+  fi
   [ ! -f "${ROOT}/projects/${from}/composer.lock" ] || cp "${ROOT}/projects/${from}/composer.lock" "${dir}/"
+  # The lock file's hash covers composer.json, repositories included
+  if [ "${repository_added}" = true ] && [ -f "${dir}/composer.lock" ]; then
+    if command -v composer >/dev/null; then
+      (cd "${dir}" && composer update --lock --no-install --no-interaction --no-scripts --ignore-platform-reqs -q 2>/dev/null) \
+        || note "composer.lock is out of date: cd projects/${name} && composer update --lock"
+    else
+      note "composer.lock is out of date (no composer here): cd projects/${name} && composer update --lock"
+    fi
+  fi
   cp -R "${ROOT}/projects/${from}/config/sites" "${dir}/config/"
   cp "${ROOT}/projects/_example/kate.yaml" "${dir}/kate.yaml"
   DOMAIN="${domain}" ACME="${acme}" yq -i '.domain = strenv(DOMAIN) | .acme.environment = strenv(ACME)' "${dir}/kate.yaml"
@@ -1145,6 +1165,7 @@ cmd_new() {
 
   step "Created projects/${name}"
   note "From projects/${from}: composer.json, composer.lock, config/sites/. Settings: projects/${name}/kate.yaml"
+  note "Own extensions go into projects/${name}/packages/<name>/, then: composer require <vendor/name>:@dev"
   [ -z "${domain}" ] || note "Before deploying: an A record for ${domain} (and the zone in Hetzner DNS for the certificate)"
   note "Deploy: ./kate deploy ${name}"
 }

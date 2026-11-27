@@ -46,7 +46,7 @@ projects/<name>/               one site each
 ├── kate.yaml                  domain, acme.environment, namespace, nodeIPs, helm: (no secrets)
 ├── composer.json, composer.lock  the site's packages; path repository ../../packages/*
 ├── config/sites/              site configuration (versioned, baked into the image)
-└── packages/                  optional: packages of this site only (with a path repository packages/*)
+└── packages/                  the site's own extensions (path repository packages/*, created by ./kate new)
 projects/kate/                 the kate site (from bmack/typo3-k8s-starter), namespace typo3
 projects/_example/kate.yaml    template for a new site; folders starting with _ are skipped by --all
 config/system/                 shared: configuration from environment variables (a site has none of its own)
