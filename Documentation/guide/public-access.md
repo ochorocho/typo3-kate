@@ -77,6 +77,14 @@ Before sites had their own Gateways, `infra/` served the domain with an `https-d
 4. optional: `kubectl -n gateway-system delete secret site-tls` (the old certificate)
 5. remove `domain` and `acme.environment` from the root `kate.yaml` (`tofu` warns while they are there)
 
+## Certificates across rebuilds
+
+Let's Encrypt issues at most **5 certificates per week for the same domain**, with no exceptions, and the allowance refills only slowly (one every 34 hours). Certificates live in the cluster, so every rebuild, and every `./kate remove` followed by a new deploy, would order a new one.
+
+That's why `./kate` keeps a copy of every issued certificate on the machine you deploy from: `~/.local/state/typo3-kate/certificates/<domain>.<issuer>.json`, readable only by you, because it holds the private key. `./kate deploy` writes it once the certificate is ready, and `./kate remove` writes it before deleting the namespace. When a site is deployed into a namespace without a certificate, `./kate deploy` restores the copy first if it is for the same domain and environment and valid for at least 7 more days. cert-manager then finds a valid certificate and orders nothing.
+
+Only when there is no copy to restore does `./kate deploy` order a new production certificate, and it says so. Use `acme.environment: staging` while you rebuild clusters or try things out. `./kate new` suggests staging, and uses it when run without a terminal.
+
 ## The token on later runs
 
 While the root `kate.yaml` has an `acme:` section, **every** `tofu apply` needs the token: from `kate.yaml`, or from `TF_VAR_hetzner_dns_token`. Without it, OpenTofu stops with an error instead of removing the issuers, which would stop every site's certificate from renewing. The token is also stored in the cluster, so you can keep it out of `kate.yaml` and read it from there:
