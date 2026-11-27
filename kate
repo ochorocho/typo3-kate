@@ -10,6 +10,7 @@
 #   ./kate status
 #   ./kate remove [<site>] [--yes] [--delete-volumes]
 #   ./kate password [<site>] [--copy]          backend login of a site
+#   ./kate garage [<site>] [--address <ip>] [--port <n>] [--copy]  Garage's web admin
 #   ./kate logs [<site>] [<component>] [-f] [--since 1h] [--tail 100]
 #   ./kate certificates                        the saved certificate copies
 #   ./kate reprocess [<site>]                  make every processed image again
@@ -1245,6 +1246,21 @@ site_namespace() {
   kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || fail "site ${project} is not deployed (no namespace ${NAMESPACE})"
 }
 
+# The command that puts stdin on the clipboard (for --copy)
+clipboard_cmd() {
+  local tool
+  for tool in pbcopy wl-copy xclip xsel; do
+    command -v "${tool}" >/dev/null || continue
+    case "${tool}" in
+      xclip) echo "xclip -selection clipboard" ;;
+      xsel) echo "xsel --clipboard --input" ;;
+      *) echo "${tool}" ;;
+    esac
+    return
+  done
+  fail "--copy needs pbcopy, wl-copy, xclip or xsel"
+}
+
 # --- password: the backend login of a site ----------------------------------------------
 cmd_password() {
   local project="" copy=false arg
@@ -1257,17 +1273,7 @@ cmd_password() {
   done
   need kubectl jq yq tofu
   local clip=""
-  if [ "${copy}" = true ]; then
-    local tool
-    for tool in pbcopy wl-copy xclip xsel; do
-      command -v "${tool}" >/dev/null && { clip="${tool}"; break; }
-    done
-    [ -n "${clip}" ] || fail "--copy needs pbcopy, wl-copy, xclip or xsel"
-    case "${clip}" in
-      xclip) clip="xclip -selection clipboard" ;;
-      xsel) clip="xsel --clipboard --input" ;;
-    esac
-  fi
+  [ "${copy}" = false ] || clip="$(clipboard_cmd)"
   connect
   if [ -z "${project}" ]; then
     local deployed
@@ -1293,6 +1299,60 @@ cmd_password() {
     # stdout, so ./kate password <site> | pbcopy also works
     echo "${password}"
   fi
+}
+
+# --- garage: Garage's web admin for a site ------------------------------------------------
+# Garage (>= 2.6) serves a web admin under /ui/ on its admin port; it asks for
+# the admin token from Secret typo3-garage. The browser keeps that login per
+# address, and every site's Garage has its own token, so each site gets its own
+# local port (the same every time): a login from another site's Garage under
+# the same address is what "Invalid bearer token" usually means.
+cmd_garage() {
+  local project="" address=127.0.0.1 port="" copy=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --address) [ $# -ge 2 ] || fail "--address needs an IP address"; address="$2"; shift ;;
+      --port) [ $# -ge 2 ] || fail "--port needs a number"; port="$2"; shift ;;
+      --copy) copy=true ;;
+      -*) fail "Usage: ./kate garage [<site>] [--address <ip>] [--port <n>] [--copy]" ;;
+      *) [ -z "${project}" ] || fail "one site at a time"; project="$1" ;;
+    esac
+    shift
+  done
+  [ -z "${port}" ] || { [[ "${port}" =~ ^[0-9]+$ ]] && [ "${port}" -ge 1024 ] && [ "${port}" -le 65535 ]; } \
+    || fail "--port must be a number from 1024 to 65535, not '${port}'"
+  need kubectl jq yq tofu
+  local clip=""
+  [ "${copy}" = false ] || clip="$(clipboard_cmd)"
+  connect
+  if [ -z "${project}" ]; then
+    local deployed
+    deployed="$(deployed_sites)"
+    [ -n "${deployed}" ] || fail "no deployed site found"
+    # shellcheck disable=SC2086 # one site per line
+    project="$(ask_choose "<site>" "Garage of which site?" ${deployed})"
+  fi
+  site_namespace "${project}"
+  k get pod garage-0 >/dev/null 2>&1 || fail "no pod garage-0 in ${NAMESPACE}: is the site deployed?"
+  k get secret typo3-garage >/dev/null 2>&1 || fail "no Secret typo3-garage in ${NAMESPACE}"
+  # The same port for a site every time, another one for each site
+  [ -n "${port}" ] || port=$((39000 + $(printf '%s' "${NAMESPACE}" | cksum | cut -d' ' -f1) % 1000))
+
+  local token
+  token="$(secret_value typo3-garage admin-token)"
+  local lines=("Garage UI: http://${address}:${port}/ui/")
+  if [ "${copy}" = true ]; then
+    # shellcheck disable=SC2086 # the tool and its options
+    printf '%s' "${token}" | ${clip}
+    lines+=("Token:     copied to the clipboard")
+  else
+    lines+=("Token:     printed below")
+  fi
+  lines+=("" "\"Invalid bearer token\"? Log out in the UI: this browser" "still has another site's token for this address." "Ctrl-C ends it.")
+  gum style --border rounded --padding "0 1" >&2 "${lines[@]}"
+  # stdout, so ./kate garage <site> | head -1 also works
+  [ "${copy}" = true ] || echo "${token}"
+  k port-forward --address "${address}" pod/garage-0 "${port}:3903" >/dev/null
 }
 
 # --- composer: for a site, with its own PHP ------------------------------------------------
@@ -1595,20 +1655,21 @@ _kate() {
     [ "${site}" = kate ] || deployable="${deployable} ${site}"
   done
   if [ "${COMP_CWORD}" -eq 1 ]; then
-    words="deploy new status logs password certificates reprocess composer dns remove values manifests autocomplete help"
+    words="deploy new status logs password garage certificates reprocess composer dns remove values manifests autocomplete help"
   else
     case "${cmd}:${prev}" in
       new:--acme) words="staging production" ;;
       new:--php) words="8.5 8.4" ;;
       new:--from) words="${sites}" ;;
       manifests:--issuer) words="letsencrypt letsencrypt-staging" ;;
-      new:--domain | new:--namespace | values:--hostname | manifests:--hostname | logs:--since | logs:--tail | dns:--ip | dns:--ttl) COMPREPLY=(); return ;;
+      new:--domain | new:--namespace | values:--hostname | manifests:--hostname | logs:--since | logs:--tail | dns:--ip | dns:--ttl | garage:--address | garage:--port) COMPREPLY=(); return ;;
       *)
         case "${cmd}" in
           deploy) words="${deployable} --all --no-build" ;;
           new) words="--domain --acme --namespace --php --node-ips --from" ;;
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
+          garage) words="${sites} --address --port --copy" ;;
           reprocess) words="${sites}" ;;
           composer)
             if [ "${COMP_CWORD}" -eq 2 ]; then words="${sites}"
@@ -1646,6 +1707,7 @@ _kate() {
       'new:create a site from projects/_example'
       'status:every site and its state'
       'password:backend login of a site'
+      'garage:the Garage web admin of a site'
       'logs:what the pods of a site write'
       'certificates:the saved certificate copies'
       'reprocess:make every processed image of a site again'
@@ -1665,13 +1727,14 @@ _kate() {
     new:--php) compadd 8.5 8.4; return ;;
     new:--from) compadd -a sites; return ;;
     manifests:--issuer) compadd letsencrypt letsencrypt-staging; return ;;
-    new:--domain|new:--namespace|values:--hostname|manifests:--hostname|logs:--since|logs:--tail|dns:--ip|dns:--ttl) _message 'value'; return ;;
+    new:--domain|new:--namespace|values:--hostname|manifests:--hostname|logs:--since|logs:--tail|dns:--ip|dns:--ttl|garage:--address|garage:--port) _message 'value'; return ;;
   esac
   case "${cmd}" in
     deploy) compadd -- ${sites:#kate}; compadd -- --all --no-build ;;
     new) compadd -- --domain --acme --namespace --php --node-ips --from ;;
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
+    garage) compadd -a sites; compadd -- --address --port --copy ;;
     reprocess) compadd -a sites ;;
     composer)
       if (( CURRENT == 3 )); then compadd -a sites
@@ -1736,7 +1799,7 @@ command="${1:-}"
 [ $# -eq 0 ] || shift
 if [ -z "${command}" ]; then
   interactive || { usage; exit 1; }
-  command="$(gum choose --header "typo3-kate" deploy new status logs password certificates reprocess dns remove autocomplete help)"
+  command="$(gum choose --header "typo3-kate" deploy new status logs password garage certificates reprocess dns remove autocomplete help)"
 fi
 case "${command}" in
   deploy) cmd_deploy "$@" ;;
@@ -1744,6 +1807,7 @@ case "${command}" in
   status) cmd_status "$@" ;;
   remove) cmd_remove "$@" ;;
   password) cmd_password "$@" ;;
+  garage) cmd_garage "$@" ;;
   logs) cmd_logs "$@" ;;
   certificates) cmd_certificates "$@" ;;
   reprocess) cmd_reprocess "$@" ;;

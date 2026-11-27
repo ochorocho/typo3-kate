@@ -205,6 +205,21 @@ kubectl -n typo3 exec garage-0 -- /garage bucket info media
 | timeouts to `garage:3900` | the chart's NetworkPolicy `typo3` lacks the Garage rule (`networkPolicy.extraEgress` in `k8s/values/cluster.yaml`): `kubectl -n typo3 get networkpolicy typo3 -o yaml` |
 | images in the page don't load (404) | `/media/` route or website mode: `kubectl -n typo3 get httproute media`, `… /garage bucket website --allow media` |
 
+### Garage's web admin
+
+Garage ships a web admin under `/ui/` on its admin port (3903): nodes, buckets, keys. `./kate garage <site>` opens a port-forward to it and prints the admin token to log in with (`--copy`: to the clipboard instead; `--address <ip>` to reach it from other machines, e.g. on the Odroid its LAN address):
+
+```sh
+./kate garage kate                       # Garage UI: http://127.0.0.1:39330/ui/
+```
+
+Every site gets its own port, the same every time. `Forbidden: Invalid bearer token` means the UI sent a token that isn't this Garage's:
+
+- **another site's login:** the browser keeps the login per address, and each site's Garage has its own token. Log out in the UI, or use the site's own port (`./kate garage` picks it).
+- **the encoded value:** the token from `kubectl get secret typo3-garage -o yaml` or the dashboard is still base64-encoded. `./kate garage` prints it decoded.
+
+Without the UI: `kubectl -n <namespace> exec garage-0 -- /garage bucket list` (no token needed).
+
 ## `./kate deploy` refuses to deploy a site
 
 It checks the other sites before it builds anything:

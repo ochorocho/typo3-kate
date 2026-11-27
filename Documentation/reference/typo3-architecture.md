@@ -95,7 +95,7 @@ Created once per site, in its namespace, by the deploy script, never stored in g
 | `typo3-mariadb` | `root-password`, `typo3-password` |
 | `typo3-valkey` | `password` |
 | `typo3-admin` | `username`, `password` of the backend admin |
-| `typo3-garage` | Garage RPC secret, admin token, S3 access key and secret (the key pair is also in `typo3-env`) |
+| `typo3-garage` | Garage RPC secret, admin token (web admin and admin API: `./kate garage`), S3 access key and secret (the key pair is also in `typo3-env`) |
 
 ## Resource budget
 

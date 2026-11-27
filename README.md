@@ -88,6 +88,7 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ./kate new shop --domain shop.example.com          # a new site from the template
 ./kate status                                      # every site and its state
 ./kate password kate --copy                        # backend password to the clipboard
+./kate garage kate                                 # Garage's web admin, with its token
 ./kate certificates                                # saved certificate copies (survive cluster rebuilds)
 ./kate reprocess shop                              # make every processed image again (automatic on an imgproxy switch)
 ./kate composer shop require vendor/package        # composer for a site, with its own PHP version
