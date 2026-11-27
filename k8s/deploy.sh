@@ -9,10 +9,12 @@
 # 4. empty database only: `typo3 setup` in a one-off pod (schema + admin user),
 #    then the root page and sample pages (k8s/bootstrap.sql). The chart's
 #    migrations hook can't do this: extension:setup needs be_users to exist.
-# 5. runs `helm upgrade --install` with k8s/charts/typo3 and k8s/values/cluster.yaml
+# 5. runs `helm upgrade --install` with k8s/charts/typo3: k8s/values/cluster.yaml,
+#    then the URLs of your domain, then the `helm:` section of kate.yaml
 #    (the chart's migrations hook runs extension:setup first)
 #
 # Usage: k8s/deploy.sh [--no-build]
+# Settings: kate.yaml in the repository root (git-ignored, see kate.example.yaml)
 # Env:   KUBECONFIG (default infra/kubeconfig), REGISTRY (default: tofu output),
 #        NAMESPACE (typo3), RELEASE (typo3)
 set -euo pipefail
@@ -28,20 +30,37 @@ fail() { echo "Error: $*" >&2; exit 1; }
 k() { kubectl -n "${NAMESPACE}" "$@"; }
 secret_value() { k get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; }
 
-for tool in docker kubectl helm jq openssl tofu; do
+for tool in docker kubectl helm jq yq openssl tofu; do
   command -v "${tool}" >/dev/null || fail "${tool} is not installed"
 done
 [ -f "${KUBECONFIG}" ] || fail "no kubeconfig at ${KUBECONFIG} (run tofu apply in infra/)"
 REGISTRY="${REGISTRY:-$(tofu -chdir="${ROOT}/infra" output -raw registry)}"
 MASTER_IP="${REGISTRY%%:*}"
 
+# Your settings (kate.yaml): the domain and Helm overrides. Without a domain
+# the site and its URLs use the master IP.
+KATE_FILE="${ROOT}/kate.yaml"
+DOMAIN=""
+[ -f "${KATE_FILE}" ] && DOMAIN="$(yq -r '.domain // ""' "${KATE_FILE}")"
+SITE_URL="https://${DOMAIN:-${MASTER_IP}}"
+
+WORK_DIR="$(mktemp -d)"
+TUNNEL_CTL=""
+cleanup() {
+  if [ -n "${TUNNEL_CTL}" ]; then
+    ssh -S "${TUNNEL_CTL}" -O exit "ubuntu@${MASTER_IP}" 2>/dev/null || true
+  fi
+  rm -rf "${WORK_DIR}"
+}
+trap cleanup EXIT
+
 # macOS may block kubectl/helm from the VM subnet (Local Network privacy) while
 # ssh is allowed. Then talk to the API through an SSH tunnel on localhost;
 # the k3s API certificate is valid for 127.0.0.1.
 if ! kubectl get --raw /readyz >/dev/null 2>&1; then
   echo "API not reachable directly, using an SSH tunnel to ${MASTER_IP}"
-  TUNNEL_DIR="$(mktemp -d)"
-  trap 'ssh -S "${TUNNEL_DIR}/ctl" -O exit "ubuntu@${MASTER_IP}" 2>/dev/null; rm -rf "${TUNNEL_DIR}"' EXIT
+  TUNNEL_DIR="${WORK_DIR}"
+  TUNNEL_CTL="${TUNNEL_DIR}/ctl"
   ssh -f -N -M -S "${TUNNEL_DIR}/ctl" -o ExitOnForwardFailure=yes \
     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
     -L 127.0.0.1:16443:127.0.0.1:6443 "ubuntu@${MASTER_IP}"
@@ -219,9 +238,20 @@ fi
 
 # --- 5. helm ----------------------------------------------------------------------
 step "Helm release ${RELEASE}"
+# Values, last wins: repository defaults, the URLs of the site, your overrides
+SITE_URL="${SITE_URL}" yq -n '
+  .typo3.extraEnv.TYPO3_S3_PUBLIC_URL = strenv(SITE_URL) + "/media/typo3/" |
+  .mercure.publicUrl = strenv(SITE_URL) + "/.well-known/mercure"' > "${WORK_DIR}/site.yaml"
+if [ -f "${KATE_FILE}" ]; then
+  yq '.helm // {}' "${KATE_FILE}" > "${WORK_DIR}/kate.yaml"
+else
+  echo "{}" > "${WORK_DIR}/kate.yaml"
+fi
 helm upgrade --install "${RELEASE}" "${ROOT}/k8s/charts/typo3" \
   --namespace "${NAMESPACE}" \
   -f "${ROOT}/k8s/values/cluster.yaml" \
+  -f "${WORK_DIR}/site.yaml" \
+  -f "${WORK_DIR}/kate.yaml" \
   --set image.repository="${REGISTRY}/typo3" \
   --set image.digest="${DIGEST}" \
   --wait --timeout 15m
@@ -234,6 +264,6 @@ fi
 echo
 k get pods -o wide
 echo
-echo "TYPO3:    https://${MASTER_IP}/   (every node IP works; trust infra/cluster-ca.crt to avoid warnings)"
-echo "Backend:  https://${MASTER_IP}/typo3   user: $(secret_value typo3-admin username)"
+echo "TYPO3:    ${SITE_URL}/   (every node IP works too; trust infra/cluster-ca.crt for those)"
+echo "Backend:  ${SITE_URL}/typo3   user: $(secret_value typo3-admin username)"
 echo "Password: kubectl -n ${NAMESPACE} get secret typo3-admin -o jsonpath='{.data.password}' | base64 -d"

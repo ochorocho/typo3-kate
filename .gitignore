@@ -15,6 +15,9 @@
 # Composer auth (may contain tokens)
 /auth.json
 
+# Your cluster settings: domain, tokens, Helm overrides (see kate.example.yaml)
+/kate.yaml
+
 # OS and IDE files
 .DS_Store
 Thumbs.db

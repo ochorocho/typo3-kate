@@ -1,0 +1,27 @@
+# Your own settings for this cluster. Copy to kate.yaml (git-ignored) and edit:
+#   cp kate.example.yaml kate.yaml && chmod 600 kate.yaml
+# Read by OpenTofu (infra/) and by k8s/deploy.sh. Everything is optional:
+# without kate.yaml the cluster runs on IP addresses with the cluster CA.
+
+# Public hostname. Turns on Let's Encrypt for the Gateway (needs the token
+# below) and is the host of the media and Mercure URLs.
+domain: kate.example.com
+
+# Let's Encrypt via DNS-01 on Hetzner DNS
+acme:
+  environment: staging          # staging (test certificates), then production
+  email: ""                     # optional contact address
+  # Hetzner Console -> project -> Security -> API tokens, Read & Write.
+  # Alternatively keep it out of this file: export TF_VAR_hetzner_dns_token
+  hetznerDnsToken: ""
+
+# Any value of the Helm chart (k8s/charts/typo3/values.yaml), merged over
+# k8s/values/cluster.yaml. Last one wins, so this overrides everything.
+helm: {}
+#  typo3:
+#    mailFrom: noreply@kate.example.com
+#  mercure:
+#    enabled: false
+#  frontend:
+#    autoscaling:
+#      maxReplicas: 6
