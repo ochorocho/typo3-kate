@@ -87,6 +87,7 @@ The site is then on https://10.17.3.10/ (CA in `infra/cluster-ca.crt`). To reach
 ./kate deploy --all                                # every site in projects/
 ./kate new shop --domain shop.example.com          # a new site from the template
 ./kate status                                      # every site and its state
+./kate autocomplete                                # tab completion for zsh or bash (once)
 helm -n typo3 rollback typo3 <revision>              # go back to an earlier release
 kubectl -n typo3 logs deploy/typo3-frontend -f       # logs
 cd infra && tofu destroy -var-file=macos.tfvars -parallelism=1   # remove everything

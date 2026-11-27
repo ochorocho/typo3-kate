@@ -89,7 +89,10 @@ Requirements: a cluster from `infra/` (`tofu apply`), plus [`gum`](https://githu
 ./kate deploy kate          # one site, no questions
 ./kate deploy --all         # every site in projects/, one after the other
 ./kate status               # every site: namespace, domain, release, certificate, pods
+./kate autocomplete         # tab completion for your shell, once
 ```
+
+`./kate autocomplete` detects zsh or bash from `$SHELL` (or takes `zsh`/`bash`), writes the completion to `~/.config/typo3-kate/completion.<shell>` and adds one line that loads it to `~/.zshrc` or `~/.bashrc`; running it again only updates the file. It completes the commands, their options and the site names from the `projects/` folder next to the `kate` you typed, so new sites need no reinstall. `--print` writes the completion to stdout instead.
 
 `./kate` asks only for what is missing on the command line. With every argument given it asks nothing, so it works in scripts and CI; without a terminal a missing argument is an error that names it.
 

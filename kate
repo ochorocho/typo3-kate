@@ -11,6 +11,7 @@
 #   ./kate remove [<site>] [--yes]
 #   ./kate values <site-url> [--hostname <domain>] [--node-ips]       (CI)
 #   ./kate manifests [--hostname <domain> --issuer <issuer>] [--node-ips]  (CI)
+#   ./kate autocomplete [bash|zsh] [--print]   tab completion for your shell
 #
 # Settings: projects/<site>/kate.yaml (domain, acme.environment, namespace,
 #           nodeIPs, helm:), ./kate.yaml (git-ignored, cluster-wide)
@@ -714,14 +715,134 @@ cmd_remove() {
   note "Left to you: its DNS record and, when no longer needed, the NFS data above (on the master under /srv/nfs)."
 }
 
+# --- autocomplete: tab completion for bash and zsh ----------------------------------
+# The completion reads the site names from projects/ next to the kate that is
+# being completed, so it fits every checkout and new sites need no reinstall.
+completion_bash() {
+  cat <<'BASH'
+# typo3-kate: tab completion for ./kate (written by ./kate autocomplete)
+_kate() {
+  local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}"
+  local cmd="${COMP_WORDS[1]:-}" dir sites="" f words
+  dir="$(dirname -- "${COMP_WORDS[0]}")"
+  for f in "${dir}"/projects/*/composer.json; do
+    [ -e "${f}" ] && sites="${sites} $(basename "$(dirname "${f}")")"
+  done
+  if [ "${COMP_CWORD}" -eq 1 ]; then
+    words="deploy new status remove values manifests autocomplete help"
+  else
+    case "${cmd}:${prev}" in
+      new:--acme) words="staging production" ;;
+      new:--from) words="${sites}" ;;
+      manifests:--issuer) words="letsencrypt letsencrypt-staging" ;;
+      new:--domain | new:--namespace | values:--hostname | manifests:--hostname) COMPREPLY=(); return ;;
+      *)
+        case "${cmd}" in
+          deploy) words="${sites} --all --no-build" ;;
+          new) words="--domain --acme --namespace --node-ips --from" ;;
+          remove) words="${sites} --yes" ;;
+          values) words="--hostname --node-ips" ;;
+          manifests) words="--hostname --issuer --node-ips" ;;
+          autocomplete) words="bash zsh --print" ;;
+          *) words="" ;;
+        esac ;;
+    esac
+  fi
+  # shellcheck disable=SC2207 # compgen prints one word per line
+  COMPREPLY=($(compgen -W "${words}" -- "${cur}"))
+}
+complete -F _kate kate ./kate
+BASH
+}
+
+completion_zsh() {
+  cat <<'ZSH'
+# typo3-kate: tab completion for ./kate (written by ./kate autocomplete)
+(( $+functions[compdef] )) || { autoload -Uz compinit && compinit; }
+_kate() {
+  local cmd="${words[2]}" prev="${words[CURRENT-1]}"
+  local -a sites commands
+  sites=( ${words[1]:h}/projects/*/composer.json(N:h:t) )
+  if (( CURRENT == 2 )); then
+    commands=(
+      'deploy:build and roll out a site'
+      'new:create a site from projects/_example'
+      'status:every site and its state'
+      'remove:remove a site from the cluster'
+      'values:Helm values of a site (CI)'
+      'manifests:Gateway, certificate and media route of a site (CI)'
+      'autocomplete:install this tab completion'
+      'help:usage'
+    )
+    _describe -t commands 'kate command' commands
+    return
+  fi
+  case "${cmd}:${prev}" in
+    new:--acme) compadd staging production; return ;;
+    new:--from) compadd -a sites; return ;;
+    manifests:--issuer) compadd letsencrypt letsencrypt-staging; return ;;
+    new:--domain|new:--namespace|values:--hostname|manifests:--hostname) _message 'value'; return ;;
+  esac
+  case "${cmd}" in
+    deploy) compadd -a sites; compadd -- --all --no-build ;;
+    new) compadd -- --domain --acme --namespace --node-ips --from ;;
+    remove) compadd -a sites; compadd -- --yes ;;
+    values) compadd -- --hostname --node-ips ;;
+    manifests) compadd -- --hostname --issuer --node-ips ;;
+    autocomplete) compadd bash zsh; compadd -- --print ;;
+  esac
+}
+compdef _kate kate ./kate
+ZSH
+}
+
+cmd_autocomplete() {
+  local shell="" print=false arg
+  for arg in "$@"; do
+    case "${arg}" in
+      bash | zsh) shell="${arg}" ;;
+      --print) print=true ;;
+      *) fail "Usage: ./kate autocomplete [bash|zsh] [--print]" ;;
+    esac
+  done
+  if [ -z "${shell}" ]; then
+    shell="$(basename "${SHELL:-}")"
+    [[ "${shell}" == bash || "${shell}" == zsh ]] \
+      || shell="$(ask_choose "bash or zsh" "Completion for which shell? (\$SHELL is ${SHELL:-unset})" zsh bash)"
+  fi
+  if [ "${print}" = true ]; then
+    "completion_${shell}"
+    return
+  fi
+
+  local dir="${XDG_CONFIG_HOME:-${HOME}/.config}/typo3-kate" rc
+  local file="${dir}/completion.${shell}"
+  case "${shell}" in
+    zsh) rc="${ZDOTDIR:-${HOME}}/.zshrc" ;;
+    bash) rc="${HOME}/.bashrc" ;;
+  esac
+  mkdir -p "${dir}"
+  "completion_${shell}" > "${file}"
+  local line="[ -f \"${file}\" ] && . \"${file}\"   # typo3-kate: ./kate autocomplete"
+  if [ -f "${rc}" ] && grep -qF "# typo3-kate: ./kate autocomplete" "${rc}"; then
+    note "${rc} loads it already"
+  else
+    printf '\n%s\n' "${line}" >> "${rc}"
+    note "Added to ${rc}: ${line}"
+  fi
+  step "Tab completion for ${shell} in ${file}"
+  note "Open a new shell (or: . ${file}) and try: ./kate <Tab>"
+  [ "${shell}" = zsh ] || note "macOS: bash login shells read ~/.bash_profile; source ~/.bashrc from there if needed"
+}
+
 # --- main ------------------------------------------------------------------------------
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2; }
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 command="${1:-}"
 [ $# -eq 0 ] || shift
 if [ -z "${command}" ]; then
   interactive || { usage; exit 1; }
-  command="$(gum choose --header "typo3-kate" deploy new status remove help)"
+  command="$(gum choose --header "typo3-kate" deploy new status remove autocomplete help)"
 fi
 case "${command}" in
   deploy) cmd_deploy "$@" ;;
@@ -730,6 +851,7 @@ case "${command}" in
   remove) cmd_remove "$@" ;;
   values) cmd_values "$@" ;;
   manifests) cmd_manifests "$@" ;;
+  autocomplete) cmd_autocomplete "$@" ;;
   help | -h | --help) usage ;;
   *) usage; exit 1 ;;
 esac
