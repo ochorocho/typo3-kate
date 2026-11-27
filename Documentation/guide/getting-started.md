@@ -23,7 +23,7 @@ Follow the page for your machine once:
 Settings live in two places:
 
 - **`kate.yaml` in the repository root**: what is yours and cluster-wide (the Hetzner DNS token, the Let's Encrypt contact, extra SSH keys, Helm values for every site). Git ignores it.
-- **`projects/<name>/kate.yaml`**: one per site, committed, no secrets: its domain, the Let's Encrypt environment, the namespace and its own Helm values. See [TYPO3 on the cluster](./typo3#sites-in-projects).
+- **`projects/<name>/kate.yaml`**: one per site, no secrets: its domain, the Let's Encrypt environment, the namespace and its own Helm values. See [TYPO3 on the cluster](./typo3#sites-in-projects).
 
 ```sh
 cp kate.example.yaml kate.yaml && chmod 600 kate.yaml

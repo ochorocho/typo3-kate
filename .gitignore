@@ -1,3 +1,9 @@
+# Sites: only the template and kate are part of the repository; your own
+# sites in projects/<name>/ stay local
+/projects/*
+!/projects/_example/
+!/projects/kate/
+
 # Composer, per project (projects/<name>/)
 /projects/*/vendor/
 /projects/*/public/

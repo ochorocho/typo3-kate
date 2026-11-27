@@ -1,6 +1,8 @@
 # Settings of one site. Copy the folder (projects/<name>/), add composer.json,
 # composer.lock and config/sites/, and deploy with: k8s/deploy.sh <name>
-# This file is committed: no secrets here (those go into ./kate.yaml).
+# Your own sites stay out of this repository (.gitignore: projects/* except
+# _example and kate), e.g. as a git repository of their own in projects/<name>/.
+# No secrets here either: those go into ./kate.yaml.
 
 # Public hostname. The project gets its own Gateway listener and Let's Encrypt
 # certificate for it (DNS-01 via the Hetzner token in ./kate.yaml); point the

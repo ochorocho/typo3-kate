@@ -35,12 +35,14 @@ Every folder in `projects/` is one site:
 
 ```
 projects/<name>/
-├── kate.yaml        settings of the site (committed, no secrets)
+├── kate.yaml        settings of the site (no secrets)
 ├── composer.json    the site's packages; path repository ../../packages/*
 ├── composer.lock
 ├── config/sites/    site configuration
 └── packages/        optional: packages of this site only
 ```
+
+Only `projects/_example` (the template) and `projects/kate` are part of this repository. Every other folder in `projects/` is git-ignored, so your own sites stay local, for example as a git repository of their own cloned into `projects/<name>/`. `k8s/deploy.sh` doesn't care either way.
 
 Shared by all sites, in the repository root: `packages/` (`k8s-health`, `k8s-starter`), `config/system/` (the cluster glue: all configuration from environment variables; a site must not have its own, the image build refuses it), `docker/`, `k8s/` and `infra/`.
 

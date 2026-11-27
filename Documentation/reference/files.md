@@ -43,7 +43,7 @@ Generated, and ignored by git:
 
 ```
 projects/<name>/               one site each
-├── kate.yaml                  domain, acme.environment, namespace, nodeIPs, helm: (committed, no secrets)
+├── kate.yaml                  domain, acme.environment, namespace, nodeIPs, helm: (no secrets)
 ├── composer.json, composer.lock  the site's packages; path repository ../../packages/*
 ├── config/sites/              site configuration (versioned, baked into the image)
 └── packages/                  optional: packages of this site only

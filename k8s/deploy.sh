@@ -63,7 +63,7 @@ fi
 PROJECT_DIR="${ROOT}/projects/${PROJECT}"
 [ -f "${PROJECT_DIR}/composer.json" ] || fail "no projects/${PROJECT}/composer.json"
 
-# The project's settings (projects/<project>/kate.yaml, committed, no secrets).
+# The project's settings (projects/<project>/kate.yaml, no secrets).
 # Without a domain the site answers on the node IPs; only one project can.
 PROJECT_FILE="${PROJECT_DIR}/kate.yaml"
 setting() { if [ -f "${PROJECT_FILE}" ]; then yq -r "$1" "${PROJECT_FILE}"; else echo "$2"; fi; }
