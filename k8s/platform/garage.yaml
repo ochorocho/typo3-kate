@@ -4,6 +4,9 @@
 # - S3 API     garage:3900  (TYPO3 only; endpoint in k8s/values/cluster.yaml)
 # - web        garage:3902  (anonymous reads of the "media" bucket, routed
 #                            from https://<site>/media/ by the HTTPRoute below)
+# - admin      garage:3903  (only with garage.ui: true in the site's kate.yaml:
+#                            the admin API and its web admin under /ui/, opened
+#                            by ./kate garage; nothing else needs it)
 #
 # --single-node --default-bucket (Garage >= 2.3) sets up the layout, the bucket
 # and the access key from GARAGE_DEFAULT_* on start, so no manual CLI setup.
@@ -14,7 +17,27 @@ kind: ConfigMap
 metadata:
   name: garage
 data:
+  # Without the admin API (the default)
   garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "sqlite"
+    replication_factor = 1
+
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+
+    [s3_api]
+    s3_region = "garage"
+    api_bind_addr = "[::]:3900"
+
+    [s3_web]
+    # No root_domain: the request's Host must equal the bucket name; the
+    # HTTPRoute rewrites it to "media".
+    bind_addr = "[::]:3902"
+    index = "index.html"
+  # The same plus the admin API (garage.ui: true): keep both in step
+  garage-ui.toml: |
     metadata_dir = "/var/lib/garage/meta"
     data_dir = "/var/lib/garage/data"
     db_engine = "sqlite"
@@ -69,6 +92,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: garage
+      annotations:
+        # Garage reads its config only on start, and a changed ConfigMap
+        # doesn't restart it: raise this with every change of garage.toml
+        typo3-kate/config-revision: "2"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -83,6 +110,7 @@ spec:
           image: dxflrs/garage:v2.6.0
           command: ["/garage", "server", "--single-node", "--default-bucket"]
           env:
+            # garage-ui.toml with garage.ui: true (./kate deploy sets it)
             - name: GARAGE_CONFIG_FILE
               value: /etc/garage/garage.toml
             - name: GARAGE_DEFAULT_BUCKET

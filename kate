@@ -119,6 +119,10 @@ load_project() {
   IMGPROXY="$(setting '.imgproxy.enabled // false' false)"
   [[ "${IMGPROXY}" == true || "${IMGPROXY}" == false ]] \
     || fail "imgproxy.enabled in projects/${PROJECT}/kate.yaml must be true or false"
+  # Garage's admin API and web admin (./kate garage): off unless asked for
+  GARAGE_UI="$(setting '.garage.ui // false' false)"
+  [[ "${GARAGE_UI}" == true || "${GARAGE_UI}" == false ]] \
+    || fail "garage.ui in projects/${PROJECT}/kate.yaml must be true or false"
 }
 
 # imgproxy_check: a site with imgproxy needs a domain (imgproxy fetches
@@ -542,7 +546,15 @@ cmd_deploy() {
 
   # 4. platform
   step "MariaDB, Valkey, Garage, volumes"
-  k apply -f "${ROOT}/k8s/platform/" >/dev/null
+  # garage.ui: Garage starts with the config that has the admin API (a
+  # changed value rolls its pod)
+  if [ "${GARAGE_UI}" = true ]; then
+    yq eval-all '(select(.kind == "StatefulSet" and .metadata.name == "garage")
+        | .spec.template.spec.containers[0].env[] | select(.name == "GARAGE_CONFIG_FILE") | .value)
+        = "/etc/garage/garage-ui.toml"' "${ROOT}"/k8s/platform/*.yaml | k apply -f - >/dev/null
+  else
+    k apply -f "${ROOT}/k8s/platform/" >/dev/null
+  fi
   # Replaced by networkPolicy.extraEgress: alone it cut a new release's
   # migrations Job off from DNS (the chart's policy comes after the hook)
   k delete networkpolicy typo3-to-garage --ignore-not-found >/dev/null
@@ -1195,13 +1207,15 @@ cmd_status() {
       [.items[] | select(.status.phase != "Succeeded")] as $p
       | "\([$p[] | select(all(.status.containerStatuses[]?; .ready))] | length)/\($p | length) ready"')"
     garage="-"
-    if kubectl -n "${NAMESPACE}" get pod garage-0 >/dev/null 2>&1; then
+    if garage_ui "${NAMESPACE}"; then
       garage=":$(garage_port "${NAMESPACE}")/ui/"
+    elif kubectl -n "${NAMESPACE}" get statefulset garage >/dev/null 2>&1; then
+      garage="off"
     fi
     rows+=("${PROJECT},${NAMESPACE},${DOMAIN:-node IPs},${state},${cert:-?},${pods},${garage}")
   done
   printf '%s\n' "${rows[@]}" | gum table --print --separator "," --columns "Site,Namespace,Domain,Release,Certificate,Pods,Garage UI"
-  note "Garage UI: ./kate garage <site> opens it on the site's port, with the token"
+  note "Garage UI: ./kate garage <site> opens it on the site's port, with the token (garage.ui: true in its kate.yaml)"
 }
 
 # --- in-cluster DNS for imgproxy -------------------------------------------------------
@@ -1309,8 +1323,14 @@ cmd_password() {
 # --- garage: Garage's web admin for a site ------------------------------------------------
 # garage_port <namespace>: the site's local port for the UI, the same every time
 garage_port() { echo $((39000 + $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 1000)); }
+# garage_ui <namespace>: whether its Garage runs with the admin API (garage.ui)
+garage_ui() {
+  kubectl -n "$1" get statefulset garage -o json 2>/dev/null | jq -e '
+    .spec.template.spec.containers[0].env[] | select(.name == "GARAGE_CONFIG_FILE") | .value == "/etc/garage/garage-ui.toml"' >/dev/null
+}
 
-# Garage (>= 2.6) serves a web admin under /ui/ on its admin port; it asks for
+# Only with garage.ui: true in the site's kate.yaml: otherwise Garage starts
+# without its admin API. Garage (>= 2.6) serves a web admin under /ui/ on its admin port; it asks for
 # the admin token from Secret typo3-garage. The browser keeps that login per
 # address, and every site's Garage has its own token, so each site gets its own
 # local port (the same every time): a login from another site's Garage under
@@ -1349,6 +1369,8 @@ cmd_garage() {
   fi
   site_namespace "${project}"
   k get pod garage-0 >/dev/null 2>&1 || fail "no pod garage-0 in ${NAMESPACE}: is the site deployed?"
+  garage_ui "${NAMESPACE}" \
+    || fail "the Garage UI of ${project} is off: set garage.ui: true in projects/${project}/kate.yaml, then ./kate deploy ${project}"
   k get secret typo3-garage >/dev/null 2>&1 || fail "no Secret typo3-garage in ${NAMESPACE}"
   # The same port for a site every time, another one for each site
   [ -n "${port}" ] || port="$(garage_port "${NAMESPACE}")"

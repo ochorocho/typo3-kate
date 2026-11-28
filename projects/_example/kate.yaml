@@ -30,6 +30,11 @@ acme:
 # imgproxy:
 #   enabled: false
 
+# Garage's web admin (./kate garage <name>): with false, Garage doesn't open
+# its admin API (port 3903) at all. Switching restarts Garage.
+# garage:
+#   ui: false
+
 # The backend admin the first install creates (./kate password <name> shows
 # the login). Changing it later has no effect on an installed site.
 # admin:

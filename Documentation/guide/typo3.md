@@ -240,25 +240,49 @@ The access key is generated once by `./kate deploy` (Secret `typo3-garage`) and 
 kubectl -n typo3 exec garage-0 -- /garage bucket info media    # size, objects, keys
 ```
 
-### Garage web GUI
+### Garage UI
 
-Garage has a web admin GUI on its admin port 3903 under `/ui/`. The port is deliberately not exposed: the admin token can change every bucket and key. Open it temporarily with `kubectl port-forward`, listening on the host's LAN address (here the Odroid):
+Garage (2.6 and later) has a web admin under `/ui/` on its admin port 3903: cluster health, nodes and layout, buckets, access keys and their permissions, maintenance tasks. Every site has its own Garage, and so its own UI and admin token.
 
-```sh
-ssh -t jochen@192.168.178.114 \
-  '~/.local/bin/kubectl --kubeconfig ~/typo3-kate/infra/kubeconfig -n typo3 port-forward --address 192.168.178.114 pod/garage-0 3903:3903'
+It is **off by default**: Garage then doesn't open the admin port at all. Switch it on per site, in `projects/<site>/kate.yaml`, and deploy (Garage restarts once, so storage 2 is briefly unavailable):
+
+```yaml
+garage:
+  ui: true
 ```
 
-Then open http://192.168.178.114:3903/ui/ and log in with the admin token:
+Even then the port is never exposed, because the admin token can change every bucket and key. `./kate garage` opens it for as long as the command runs:
 
 ```sh
-kubectl -n typo3 get secret typo3-garage -o jsonpath='{.data.admin-token}' | base64 -d; echo
+./kate garage ochorocho                                # only on this machine: http://127.0.0.1:39361/ui/
+./kate garage ochorocho --address 192.168.178.114      # from the home network, e.g. on the Odroid
+./kate garage ochorocho --copy                         # the token to the clipboard instead of the terminal
 ```
 
-While the port-forward runs, every device on the home network can reach the login page; Ctrl+C closes it. Never forward port 3903 on the router. Don't delete the `default access key` or change its permissions: TYPO3 uses it, and storage 2 goes offline without it.
+It starts a `kubectl port-forward` to `garage-0` and prints the URL and the admin token (Secret `typo3-garage`, decoded). Log in with that token; Ctrl-C closes the port-forward again.
+
+| Option | Default | |
+|---|---|---|
+| `--address <ip>` | `127.0.0.1` | the address to listen on; another machine's browser needs the host's LAN address |
+| `--port <n>` | the site's port | the local port |
+| `--copy` | | the token to the clipboard (pbcopy, wl-copy, xclip or xsel) |
+
+**One port per site.** Each site gets its own port, the same every time (39000 plus a checksum of the namespace). `./kate status` lists it in the column "Garage UI", or `off`. The browser keeps the UI's login per address, so separate ports keep each site's login apart.
+
+**`Forbidden: Invalid bearer token`** means the UI sent a token that isn't this Garage's:
+
+- another site's login under the same address and port (e.g. after `--port` with the same number for two sites): log out in the UI, or let `./kate garage` choose the port
+- the token copied still base64-encoded, from `kubectl get secret typo3-garage -o yaml` or the dashboard: `./kate garage` prints it decoded
+
+**Careful:**
+
+- With `--address` set to a LAN address, every device on that network can reach the login page while the command runs. Never forward the port on the router.
+- Don't delete the `default access key` or change its permissions: TYPO3 uses it, and storage 2 goes offline without it.
+
+Without the UI, the CLI in the pod needs no token: `kubectl -n <namespace> exec garage-0 -- /garage bucket list` (or `key list`, `status`).
 
 ::: tip `ssh -L` fails with "administratively prohibited"
-The server's sshd has `AllowTcpForwarding no`, so SSH tunnels to it are refused. That's why the port-forward above listens on the LAN address instead.
+If the host's sshd has `AllowTcpForwarding no`, SSH tunnels to it are refused. Run `./kate garage` on the host itself with `--address <its LAN address>` instead.
 :::
 
 Garage runs as a single node on one local-path volume: no replication, and the data is gone with the VM disk. Back up the bucket, or move to a managed S3, before relying on it.
