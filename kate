@@ -6,7 +6,7 @@
 #   ./kate                                   menu
 #   ./kate deploy [<site>|--all] [--no-build]   (--all and the menu leave out kate)
 #   ./kate new [<site>] [--domain <domain>] [--acme staging|production]
-#              [--namespace <ns>] [--php 8.5|8.4] [--node-ips] [--from <site>]
+#              [--namespace <ns>] [--php 8.5|8.4] [--node-ips] [--garage-ui] [--from <site>]
 #   ./kate status
 #   ./kate remove [<site>] [--yes] [--delete-volumes]
 #   ./kate password [<site>] [--copy]          backend login of a site
@@ -1078,14 +1078,16 @@ cmd_wait_certificate() {
 
 # --- new: create a site in projects/<site>/ ------------------------------------------
 cmd_new() {
-  local name="" domain="" domain_set=false acme="" namespace="" node_ips=false from="" php=""
-  local usage="Usage: ./kate new [<site>] [--domain <domain>] [--acme staging|production] [--namespace <ns>] [--php <version>] [--node-ips] [--from <site>]"
+  local name="" domain="" domain_set=false acme="" namespace="" node_ips=false from="" php="" garage_ui=""
+  local usage="Usage: ./kate new [<site>] [--domain <domain>] [--acme staging|production] [--namespace <ns>] [--php <version>] [--node-ips] [--garage-ui|--no-garage-ui] [--from <site>]"
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain) [ $# -ge 2 ] || fail "${usage}"; domain="$2"; domain_set=true; shift 2 ;;
       --acme) [ $# -ge 2 ] || fail "${usage}"; acme="$2"; shift 2 ;;
       --namespace) [ $# -ge 2 ] || fail "${usage}"; namespace="$2"; shift 2 ;;
       --node-ips) node_ips=true; shift ;;
+      --garage-ui) garage_ui=true; shift ;;
+      --no-garage-ui) garage_ui=false; shift ;;
       --from) [ $# -ge 2 ] || fail "${usage}"; from="$2"; shift 2 ;;
       --php) [ $# -ge 2 ] || fail "${usage}"; php="$2"; shift 2 ;;
       -*) fail "${usage}" ;;
@@ -1145,6 +1147,14 @@ cmd_new() {
     fi
   fi
   php_supported "${php}" || fail "--php: one of ${PHP_VERSIONS}"
+  # Garage's web admin (garage.ui): off unless asked for
+  if [ -z "${garage_ui}" ]; then
+    garage_ui=false
+    if interactive && gum confirm --default=false \
+        "Garage UI? Garage's web admin through ./kate garage (No: Garage keeps its admin port closed)"; then
+      garage_ui=true
+    fi
+  fi
 
   local dir="${ROOT}/projects/${name}"
   mkdir -p "${dir}/config"
@@ -1177,11 +1187,13 @@ cmd_new() {
   [ "${namespace}" = "${name}" ] || NS="${namespace}" yq -i '.namespace = strenv(NS)' "${dir}/kate.yaml"
   [ "${node_ips}" = false ] || yq -i '.nodeIPs = true' "${dir}/kate.yaml"
   PHP="${php}" yq -i '.php = strenv(PHP)' "${dir}/kate.yaml"
+  [ "${garage_ui}" = false ] || yq -i '.garage.ui = true' "${dir}/kate.yaml"
 
   step "Created projects/${name}"
   note "From projects/${from}: composer.json, composer.lock, config/sites/. Settings: projects/${name}/kate.yaml"
   note "Own extensions go into projects/${name}/packages/<name>/, then: ./kate composer ${name} require <vendor/name>:@dev"
   [ -z "${domain}" ] || note "Before deploying: an A record for ${domain} (and the zone in Hetzner DNS for the certificate)"
+  [ "${garage_ui}" = false ] || note "Garage UI on: after the deploy, ./kate garage ${name}"
   note "Deploy: ./kate deploy ${name}"
 }
 
@@ -1703,7 +1715,7 @@ _kate() {
       *)
         case "${cmd}" in
           deploy) words="${deployable} --all --no-build" ;;
-          new) words="--domain --acme --namespace --php --node-ips --from" ;;
+          new) words="--domain --acme --namespace --php --node-ips --garage-ui --no-garage-ui --from" ;;
           remove) words="${sites} --yes --delete-volumes" ;;
           password) words="${sites} --copy" ;;
           garage) words="${sites} --address --port --copy" ;;
@@ -1768,7 +1780,7 @@ _kate() {
   esac
   case "${cmd}" in
     deploy) compadd -- ${sites:#kate}; compadd -- --all --no-build ;;
-    new) compadd -- --domain --acme --namespace --php --node-ips --from ;;
+    new) compadd -- --domain --acme --namespace --php --node-ips --garage-ui --no-garage-ui --from ;;
     remove) compadd -a sites; compadd -- --yes --delete-volumes ;;
     password) compadd -a sites; compadd -- --copy ;;
     garage) compadd -a sites; compadd -- --address --port --copy ;;
