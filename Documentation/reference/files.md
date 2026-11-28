@@ -52,6 +52,7 @@ projects/_example/kate.yaml    template for a new site; folders starting with _ 
 config/system/                 shared: configuration from environment variables (a site has none of its own)
 packages/                      shared: k8s-health (health checks), k8s-starter (site package),
                                imgproxy (ochorocho/kate-imgproxy: EXT:media_processing for imgproxy.enabled)
+                               demo-chat (ochorocho/kate-demo-chat: a backend chat through the Mercure hub)
 docker/                        production image, built per site (--build-arg PROJECT=<name>, PHP_VERSION, BASE_VARIANT)
                                on base.Dockerfile, the runtime published as ghcr.io/ochorocho/typo3-kate-base:<php>
                                (ImageMagick 7) and :<php>-imgproxy (no image tools);

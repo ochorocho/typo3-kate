@@ -230,6 +230,17 @@ kubectl -n typo3 exec deploy/typo3-backend -- vendor/bin/typo3 mercure:publish h
 
 Usage from PHP and Fluid: [the extension's README](https://github.com/ochorocho/typo3-mercure#readme).
 
+### Demo chat
+
+`packages/demo-chat` (`ochorocho/kate-demo-chat`) is a chat for backend users that runs through the site's hub: a "Chat" tab on the right of the backend, expanded to a panel and collapsed again, live for everyone logged in to the backend. Any site can require it:
+
+```sh
+./kate composer shop require ochorocho/kate-demo-chat:@dev
+./kate deploy shop
+```
+
+Messages are private Mercure updates: only logged-in backend users receive them, the sender's name comes from their login, and nothing is stored. Details: [its README](https://github.com/ochorocho/typo3-kate/tree/main/packages/demo-chat#readme).
+
 ## S3 storage ("Media (S3)")
 
 Storage 2 in `config/system/file-storages.yaml` uses the S3 driver (b13/typo3-s3-driver) with **Garage** in the cluster, as Benni's starter does in DDEV. TYPO3 writes over the S3 API (`http://garage:3900`, bucket `media`, prefix `typo3`). Browsers load the files anonymously from `https://kate.ochorocho.dev/media/typo3/…`: the site's HTTPRoute `media` sends `/media/` to Garage's web endpoint. Every site has its own Garage.

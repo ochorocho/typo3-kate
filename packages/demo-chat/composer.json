@@ -1,0 +1,30 @@
+{
+    "name": "ochorocho/kate-demo-chat",
+    "type": "typo3-cms-extension",
+    "description": "typo3-kate: a demo chat for backend users on the right of the TYPO3 backend, live through the Mercure hub",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": "^8.3",
+        "ochorocho/typo3-mercure": "^1.0",
+        "typo3/cms-backend": "^14.0 || dev-main",
+        "typo3/cms-core": "^14.0 || dev-main"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ochorocho\\KateDemoChat\\": "Classes/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Ochorocho\\KateDemoChat\\Tests\\": "Tests/"
+        }
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "kate_demo_chat"
+        }
+    }
+}
