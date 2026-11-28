@@ -1177,11 +1177,11 @@ cmd_new() {
 cmd_status() {
   need kubectl helm jq yq tofu
   connect
-  local rows=() p state cert pods
+  local rows=() p state cert pods garage
   for p in $(list_projects); do
     load_project "${p}"
     if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
-      rows+=("${PROJECT},${NAMESPACE},${DOMAIN:-node IPs},not deployed,-,-")
+      rows+=("${PROJECT},${NAMESPACE},${DOMAIN:-node IPs},not deployed,-,-,-")
       continue
     fi
     state="$(helm -n "${NAMESPACE}" status "${RELEASE}" -o json 2>/dev/null | jq -r '.info.status // "no release"' || echo "no release")"
@@ -1194,9 +1194,14 @@ cmd_status() {
     pods="$(kubectl -n "${NAMESPACE}" get pods -o json | jq -r '
       [.items[] | select(.status.phase != "Succeeded")] as $p
       | "\([$p[] | select(all(.status.containerStatuses[]?; .ready))] | length)/\($p | length) ready"')"
-    rows+=("${PROJECT},${NAMESPACE},${DOMAIN:-node IPs},${state},${cert:-?},${pods}")
+    garage="-"
+    if kubectl -n "${NAMESPACE}" get pod garage-0 >/dev/null 2>&1; then
+      garage=":$(garage_port "${NAMESPACE}")/ui/"
+    fi
+    rows+=("${PROJECT},${NAMESPACE},${DOMAIN:-node IPs},${state},${cert:-?},${pods},${garage}")
   done
-  printf '%s\n' "${rows[@]}" | gum table --print --separator "," --columns "Site,Namespace,Domain,Release,Certificate,Pods"
+  printf '%s\n' "${rows[@]}" | gum table --print --separator "," --columns "Site,Namespace,Domain,Release,Certificate,Pods,Garage UI"
+  note "Garage UI: ./kate garage <site> opens it on the site's port, with the token"
 }
 
 # --- in-cluster DNS for imgproxy -------------------------------------------------------
@@ -1302,6 +1307,9 @@ cmd_password() {
 }
 
 # --- garage: Garage's web admin for a site ------------------------------------------------
+# garage_port <namespace>: the site's local port for the UI, the same every time
+garage_port() { echo $((39000 + $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 1000)); }
+
 # Garage (>= 2.6) serves a web admin under /ui/ on its admin port; it asks for
 # the admin token from Secret typo3-garage. The browser keeps that login per
 # address, and every site's Garage has its own token, so each site gets its own
@@ -1343,7 +1351,7 @@ cmd_garage() {
   k get pod garage-0 >/dev/null 2>&1 || fail "no pod garage-0 in ${NAMESPACE}: is the site deployed?"
   k get secret typo3-garage >/dev/null 2>&1 || fail "no Secret typo3-garage in ${NAMESPACE}"
   # The same port for a site every time, another one for each site
-  [ -n "${port}" ] || port=$((39000 + $(printf '%s' "${NAMESPACE}" | cksum | cut -d' ' -f1) % 1000))
+  [ -n "${port}" ] || port="$(garage_port "${NAMESPACE}")"
 
   local token
   token="$(secret_value typo3-garage admin-token)"

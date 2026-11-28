@@ -213,7 +213,7 @@ Garage ships a web admin under `/ui/` on its admin port (3903): nodes, buckets, 
 ./kate garage kate                       # Garage UI: http://127.0.0.1:39330/ui/
 ```
 
-Every site gets its own port, the same every time. `Forbidden: Invalid bearer token` means the UI sent a token that isn't this Garage's:
+Every site gets its own port, the same every time; `./kate status` lists it in the column "Garage UI". `Forbidden: Invalid bearer token` means the UI sent a token that isn't this Garage's:
 
 - **another site's login:** the browser keeps the login per address, and each site's Garage has its own token. Log out in the UI, or use the site's own port (`./kate garage` picks it).
 - **the encoded value:** the token from `kubectl get secret typo3-garage -o yaml` or the dashboard is still base64-encoded. `./kate garage` prints it decoded.
