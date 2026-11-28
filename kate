@@ -1315,7 +1315,8 @@ cmd_garage() {
       --port) [ $# -ge 2 ] || fail "--port needs a number"; port="$2"; shift ;;
       --copy) copy=true ;;
       -*) fail "Usage: ./kate garage [<site>] [--address <ip>] [--port <n>] [--copy]" ;;
-      *) [ -z "${project}" ] || fail "one site at a time"; project="$1" ;;
+      *) [ -z "${project}" ] || fail "unexpected '$1': ./kate garage takes one site and prints the URL itself (--address <ip>, --port <n> to choose it)"
+         project="$1" ;;
     esac
     shift
   done
@@ -1331,6 +1332,12 @@ cmd_garage() {
     [ -n "${deployed}" ] || fail "no deployed site found"
     # shellcheck disable=SC2086 # one site per line
     project="$(ask_choose "<site>" "Garage of which site?" ${deployed})"
+  fi
+  # A namespace instead of the site's name: say which site it is
+  if [ ! -f "${ROOT}/projects/${project}/kate.yaml" ]; then
+    local owner
+    owner="$(kubectl get namespace "${project}" -o json 2>/dev/null | jq -r '.metadata.annotations["typo3-kate/project"] // ""' || true)"
+    [ -z "${owner}" ] || fail "${project} is the namespace of site ${owner}: ./kate garage ${owner}"
   fi
   site_namespace "${project}"
   k get pod garage-0 >/dev/null 2>&1 || fail "no pod garage-0 in ${NAMESPACE}: is the site deployed?"
